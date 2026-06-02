@@ -1,6 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
     provider = "prisma-client-js"
 }
@@ -10,145 +7,11 @@ datasource db {
     url      = env("DATABASE_URL")
 }
 
-model Developer {
-    id         Int      @id @default(autoincrement())
-    name       String
-    email      String?  @unique
-    passwordHash String?
-    qrCodeUrl  String?
-    phone              String?
-    legalAddress       String?  @map("legal_address")
-    officeAddress      String?  @map("office_address")
-    website            String?
-    description        String?
-    logoUrl            String?  @map("logo_url")
-    telegramChatId       String?   @map("telegram_chat_id")
-    telegramLinkToken      String?   @unique @map("telegram_link_token")
-    telegramLinkExpiresAt  DateTime? @map("telegram_link_expires_at")
-    createdAt  DateTime @default(now())
-
-    projects Project[]
-    sessions DeveloperSession[]
-    memberships ProjectMember[]
-    devices DeveloperDevice[]
-    promoRedemptions PromoRedemption[]
-
-    @@map("developers")
-}
-
-model DeveloperDevice {
-    id            Int      @id @default(autoincrement())
-    developerId   Int      @map("developer_id")
-    expoPushToken String   @unique @map("expo_push_token")
-    platform      String?
-    createdAt     DateTime @default(now()) @map("created_at")
-    updatedAt     DateTime @updatedAt @map("updated_at")
-
-    developer Developer @relation(fields: [developerId], references: [id], onDelete: Cascade)
-
-    @@index([developerId])
-    @@map("developer_devices")
-}
-
-model Project {
-    id           Int     @id @default(autoincrement())
-    name         String
-    location     String
-    district     String?
-    description  String?
-    advantages   String[]
-    materials    String[] @default([])
-    hasInstallment Boolean @default(false) @map("has_installment")
-    buildingCount  Int?    @map("building_count")
-    corpusCount    Int?    @map("corpus_count")
-    ceilingHeightM Float?  @map("ceiling_height_m")
-    hasSurfaceParking     Boolean @default(false) @map("has_surface_parking")
-    hasUndergroundParking Boolean @default(false) @map("has_underground_parking")
-    surfaceParkingSpaces     Int? @map("surface_parking_spaces")
-    undergroundParkingSpaces Int? @map("underground_parking_spaces")
-    elevatorsCount Int?    @map("elevators_count")
-    latitude     Float?
-    longitude    Float?
-    mapEmbedUrl  String?
-    qrCodeUrl    String?
-    totalFloors  Int?
-    totalUnits   Int?
-    badgeVerified Boolean @default(false)
-    badgeTrusted  Boolean @default(false)
-    topInCatalog  Boolean @default(false)
-    topInHome     Boolean @default(false)
-    deliveryDate String
-    imageUrl     String  @default("")
-    videoUrl     String?
-    developerId  Int
-
-    developer Developer   @relation(fields: [developerId], references: [id], onDelete: Cascade)
-    floors    ProjectFloor[]
-    leads      Lead[]
-    media      ProjectMedia[]
-    reviews    ProjectReview[]
-    members    ProjectMember[]
-    subscription ProjectSubscription?
-    billingInvoices BillingInvoice[]
-    progressMilestones ProjectProgressMilestone[]
-    promoRedemptions PromoRedemption[]
-    apartmentUnits   ApartmentUnit[]
-    layoutVariants   LayoutVariant[]
-    customers        Customer[]
-    buildingProgress BuildingProgress?
-
-    @@index([developerId])
-    @@map("projects")
-}
-
-model ProjectProgressMilestone {
-    id        Int      @id @default(autoincrement())
-    projectId Int      @map("project_id")
-    title     String
-    sortOrder Int      @default(0) @map("sort_order")
-    done      Boolean  @default(false)
-    photoUrls String[] @default([]) @map("photo_urls")
-    createdAt DateTime @default(now()) @map("created_at")
-    updatedAt DateTime @updatedAt @map("updated_at")
-
-    project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-
-    @@index([projectId])
-    @@map("project_progress_milestones")
-}
+// ─── Enums ────────────────────────────────────────────────────────────────────
 
 enum ProjectMemberRole {
     OWNER
     MANAGER
-}
-
-model ProjectMember {
-    id          Int @id @default(autoincrement())
-    projectId   Int
-    developerId Int
-    role        ProjectMemberRole @default(MANAGER)
-    createdAt   DateTime @default(now())
-
-    project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-    developer Developer @relation(fields: [developerId], references: [id], onDelete: Cascade)
-
-    @@unique([projectId, developerId])
-    @@index([developerId])
-    @@map("project_members")
-}
-
-model DeveloperSession {
-    id          Int      @id @default(autoincrement())
-    developerId Int
-    token       String   @unique
-    expiresAt   DateTime
-    createdAt   DateTime @default(now())
-
-    developer Developer @relation(fields: [developerId], references: [id], onDelete: Cascade)
-
-    @@index([developerId])
-    @@index([token])
-    @@map("developer_sessions")
 }
 
 enum SubscriptionPlan {
@@ -176,99 +39,212 @@ enum PromoBenefitType {
     PERCENT_OFF
 }
 
-model ProjectSubscription {
-    id            Int                @id @default(autoincrement())
-    projectId     Int                @unique
-    plan          SubscriptionPlan   @default(START)
-    status        SubscriptionStatus @default(TRIAL)
-    trialStartsAt DateTime?
-    trialEndsAt   DateTime?
-    currentPeriodStart DateTime?
-    currentPeriodEnd   DateTime?
-    provider      BillingProvider?
-    externalRef   String?
-    createdAt     DateTime           @default(now())
-    updatedAt     DateTime           @updatedAt
-
-    project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-
-    @@index([status])
-    @@index([plan])
-    @@map("project_subscriptions")
+enum LeadStatus {
+    NEW
+    CONTACTED
+    MEETING
+    RESERVED
+    SOLD
+    CANCELED
 }
 
-model PromoCode {
-    id               Int              @id @default(autoincrement())
-    code             String           @unique
-    description      String?
-    benefitType      PromoBenefitType @map("benefit_type")
-    freeDays         Int?             @map("free_days")
-    percentOff       Int?             @map("percent_off")
-    plan             SubscriptionPlan?
-    startsAt         DateTime?        @map("starts_at")
-    expiresAt        DateTime?        @map("expires_at")
-    maxRedemptions   Int?             @map("max_redemptions")
-    redeemedCount    Int              @default(0) @map("redeemed_count")
-    active           Boolean          @default(true)
-    createdAt        DateTime         @default(now()) @map("created_at")
-    updatedAt        DateTime         @updatedAt @map("updated_at")
-
-    redemptions PromoRedemption[]
-
-    @@index([active])
-    @@index([expiresAt])
-    @@map("promo_codes")
+enum ApartmentStatus {
+    AVAILABLE      // Свободна
+    RESERVED       // Забронирована
+    SOLD           // Продана
+    INSTALLMENT    // В рассрочке
+    MORTGAGE       // В ипотеке
+    UNAVAILABLE    // Недоступна
 }
 
-model PromoRedemption {
-    id          Int      @id @default(autoincrement())
-    promoCodeId Int      @map("promo_code_id")
-    developerId Int?     @map("developer_id")
-    projectId   Int?     @map("project_id")
-    redeemedAt  DateTime @default(now()) @map("redeemed_at")
+enum RenovationState {
+    WITHOUT_RENOVATION  // Без ремонта
+    WITH_RENOVATION     // С ремонтом
+    DESIGNER_RENOVATION // Дизайнерский ремонт
+}
 
-    promoCode PromoCode @relation(fields: [promoCodeId], references: [id], onDelete: Cascade)
-    developer Developer? @relation(fields: [developerId], references: [id], onDelete: SetNull)
-    project   Project?  @relation(fields: [projectId], references: [id], onDelete: SetNull)
+enum ApartmentClass {
+    ECONOMY
+    COMFORT
+    BUSINESS
+    PREMIUM
+}
 
-    @@index([promoCodeId])
+enum ContractStatus {
+    ACTIVE     // Активный
+    BOOKED     // Забронирован
+    COMPLETED  // Завершён
+    CANCELED   // Отменён
+}
+
+enum PaymentMethod {
+    CASH         // Наличные
+    INSTALLMENT  // Рассрочка
+    MORTGAGE     // Ипотека
+    FULL         // Полная оплата
+}
+
+enum CustomerPaymentType {
+    DEPOSIT
+    INSTALLMENT
+    FULL
+    OTHER
+}
+
+enum ConstructionStageKey {
+    FOUNDATION
+    FRAME
+    FACADE
+    INTERIOR
+    LANDSCAPING
+}
+
+// ─── Developer & Auth ─────────────────────────────────────────────────────────
+
+model Developer {
+    id                     Int       @id @default(autoincrement())
+    name                   String
+    email                  String?   @unique
+    passwordHash           String?
+    qrCodeUrl              String?
+    phone                  String?
+    legalAddress           String?   @map("legal_address")
+    officeAddress          String?   @map("office_address")
+    website                String?
+    description            String?
+    logoUrl                String?   @map("logo_url")
+    telegramChatId         String?   @map("telegram_chat_id")
+    telegramLinkToken      String?   @unique @map("telegram_link_token")
+    telegramLinkExpiresAt  DateTime? @map("telegram_link_expires_at")
+    createdAt              DateTime  @default(now())
+
+    projects         Project[]
+    sessions         DeveloperSession[]
+    memberships      ProjectMember[]
+    devices          DeveloperDevice[]
+    promoRedemptions PromoRedemption[]
+    // contracts where this developer is the responsible manager
+    managedContracts Contract[] @relation("ContractManager")
+    brokerContracts  Contract[] @relation("ContractBroker")
+
+    @@map("developers")
+}
+
+model DeveloperDevice {
+    id            Int      @id @default(autoincrement())
+    developerId   Int      @map("developer_id")
+    expoPushToken String   @unique @map("expo_push_token")
+    platform      String?
+    createdAt     DateTime @default(now()) @map("created_at")
+    updatedAt     DateTime @updatedAt @map("updated_at")
+
+    developer Developer @relation(fields: [developerId], references: [id], onDelete: Cascade)
+
     @@index([developerId])
-    @@index([projectId])
-    @@unique([promoCodeId, developerId, projectId])
-    @@map("promo_redemptions")
+    @@map("developer_devices")
 }
 
-model BillingInvoice {
-    id             Int             @id @default(autoincrement())
-    projectId      Int
-    provider       BillingProvider
-    amountUsd      Int
-    status         String          @default("PENDING")
-    externalRef    String?         @unique
-    checkoutUrl    String?
-    metadata       Json?
-    createdAt      DateTime        @default(now())
-    updatedAt      DateTime        @updatedAt
-
-    project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-
-    @@index([projectId])
-    @@index([provider, status])
-    @@map("billing_invoices")
-}
-
-model BillingWebhookEvent {
+model DeveloperSession {
     id          Int      @id @default(autoincrement())
-    provider    BillingProvider
-    externalRef String
-    status      String
-    signature   String?
+    developerId Int
+    token       String   @unique
+    expiresAt   DateTime
     createdAt   DateTime @default(now())
 
-    @@unique([provider, externalRef, status])
-    @@index([externalRef])
-    @@map("billing_webhook_events")
+    developer Developer @relation(fields: [developerId], references: [id], onDelete: Cascade)
+
+    @@index([developerId])
+    @@index([token])
+    @@map("developer_sessions")
 }
+
+// ─── Project ──────────────────────────────────────────────────────────────────
+
+model Project {
+    id                       Int     @id @default(autoincrement())
+    name                     String
+    location                 String
+    district                 String?
+    description              String?
+    advantages               String[]
+    materials                String[] @default([])
+    hasInstallment           Boolean  @default(false) @map("has_installment")
+    buildingCount            Int?     @map("building_count")
+    corpusCount              Int?     @map("corpus_count")
+    ceilingHeightM           Float?   @map("ceiling_height_m")
+    hasSurfaceParking        Boolean  @default(false) @map("has_surface_parking")
+    hasUndergroundParking    Boolean  @default(false) @map("has_underground_parking")
+    surfaceParkingSpaces     Int?     @map("surface_parking_spaces")
+    undergroundParkingSpaces Int?     @map("underground_parking_spaces")
+    elevatorsCount           Int?     @map("elevators_count")
+    latitude                 Float?
+    longitude                Float?
+    mapEmbedUrl              String?
+    qrCodeUrl                String?
+    totalFloors              Int?
+    totalUnits               Int?
+    badgeVerified            Boolean  @default(false)
+    badgeTrusted             Boolean  @default(false)
+    topInCatalog             Boolean  @default(false)
+    topInHome                Boolean  @default(false)
+    deliveryDate             String
+    imageUrl                 String   @default("")
+    videoUrl                 String?
+    developerId              Int
+
+    developer          Developer                  @relation(fields: [developerId], references: [id], onDelete: Cascade)
+    floors             ProjectFloor[]
+    leads              Lead[]
+    media              ProjectMedia[]
+    reviews            ProjectReview[]
+    members            ProjectMember[]
+    subscription       ProjectSubscription?
+    billingInvoices    BillingInvoice[]
+    progressMilestones ProjectProgressMilestone[]
+    promoRedemptions   PromoRedemption[]
+    apartmentUnits     ApartmentUnit[]
+    layoutVariants     LayoutVariant[]
+    customers          Customer[]
+    buildingProgress   BuildingProgress?
+    contracts          Contract[]
+    contractTemplates  ContractTemplate[]
+
+    @@index([developerId])
+    @@map("projects")
+}
+
+model ProjectMember {
+    id          Int               @id @default(autoincrement())
+    projectId   Int
+    developerId Int
+    role        ProjectMemberRole @default(MANAGER)
+    createdAt   DateTime          @default(now())
+
+    project   Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+    developer Developer @relation(fields: [developerId], references: [id], onDelete: Cascade)
+
+    @@unique([projectId, developerId])
+    @@index([developerId])
+    @@map("project_members")
+}
+
+model ProjectProgressMilestone {
+    id        Int      @id @default(autoincrement())
+    projectId Int      @map("project_id")
+    title     String
+    sortOrder Int      @default(0) @map("sort_order")
+    done      Boolean  @default(false)
+    photoUrls String[] @default([]) @map("photo_urls")
+    createdAt DateTime @default(now()) @map("created_at")
+    updatedAt DateTime @updatedAt @map("updated_at")
+
+    project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+    @@index([projectId])
+    @@map("project_progress_milestones")
+}
+
+// ─── Floors & Layouts ─────────────────────────────────────────────────────────
 
 model ProjectFloor {
     id         Int      @id @default(autoincrement())
@@ -280,10 +256,10 @@ model ProjectFloor {
     createdAt  DateTime @default(now()) @map("created_at")
     updatedAt  DateTime @updatedAt @map("updated_at")
 
-    project      Project                  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-    areaOptions  ProjectFloorAreaOption[]
-    layouts      ProjectFloorLayout[]
-    leads        Lead[]
+    project     Project                  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+    areaOptions ProjectFloorAreaOption[]
+    layouts     ProjectFloorLayout[]
+    leads       Lead[]
 
     @@unique([projectId, floor])
     @@index([projectId])
@@ -303,20 +279,19 @@ model ProjectFloorAreaOption {
 }
 
 model ProjectFloorLayout {
-    id             Int    @id @default(autoincrement())
-    projectFloorId Int    @map("project_floor_id")
-    imageUrl       String @map("image_url")
+    id             Int     @id @default(autoincrement())
+    projectFloorId Int     @map("project_floor_id")
+    imageUrl       String  @map("image_url")
     title          String?
-    sortOrder      Int    @default(0) @map("sort_order")
+    sortOrder      Int     @default(0) @map("sort_order")
 
-    floor          ProjectFloor   @relation(fields: [projectFloorId], references: [id], onDelete: Cascade)
-    layoutVariant  LayoutVariant?
+    floor         ProjectFloor   @relation(fields: [projectFloorId], references: [id], onDelete: Cascade)
+    layoutVariant LayoutVariant?
 
     @@index([projectFloorId])
     @@map("project_floor_layouts")
 }
 
-/// Шаблон планировки: привязан к существующей записи project_floor_layouts (картинка плана в каталоге/3D-витрине).
 model LayoutVariant {
     id                   Int      @id @default(autoincrement())
     projectId            Int      @map("project_id")
@@ -326,70 +301,42 @@ model LayoutVariant {
     createdAt            DateTime @default(now()) @map("created_at")
     updatedAt            DateTime @updatedAt @map("updated_at")
 
-    project             Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
-    projectFloorLayout  ProjectFloorLayout @relation(fields: [projectFloorLayoutId], references: [id], onDelete: Cascade)
-    apartmentUnits      ApartmentUnit[]
+    project            Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
+    projectFloorLayout ProjectFloorLayout @relation(fields: [projectFloorLayoutId], references: [id], onDelete: Cascade)
+    apartmentUnits     ApartmentUnit[]
 
     @@index([projectId])
     @@map("layout_variants")
 }
 
-enum LeadStatus {
-    NEW
-    CONTACTED
-    MEETING
-    RESERVED
-    SOLD
-    CANCELED
-}
+// ─── Apartments ───────────────────────────────────────────────────────────────
 
-enum ApartmentStatus {
-    AVAILABLE
-    RESERVED
-    SOLD
-}
-
-enum CustomerPaymentType {
-    DEPOSIT
-    INSTALLMENT
-    FULL
-    OTHER
-}
-
-enum ConstructionStageKey {
-    FOUNDATION
-    FRAME
-    FACADE
-    INTERIOR
-    LANDSCAPING
-}
-
-/// Конкретная квартира (шахматка / CRM). План и 3D по умолчанию берутся из связанного LayoutVariant → ProjectFloorLayout.
 model ApartmentUnit {
-    id              Int             @id @default(autoincrement())
-    projectId       Int             @map("project_id")
-    /// Код блока/корпуса для шахматки (пустая строка = один объект без деления на блоки).
-    sectionKey      String          @default("") @map("section_key")
-    layoutVariantId Int?            @map("layout_variant_id")
-    number          String
-    floor           Int
-    rooms           Int
-    areaSqm         Float           @map("area_sqm")
-    priceUzs        Int?            @map("price_uzs")
-    status          ApartmentStatus @default(AVAILABLE)
-    /// Ручной override картинки плана (если null — imageUrl из layout variant / floor layout).
-    layoutImageUrl  String?         @map("layout_image_url")
-    /// Ручной override 3D URL (если null — model3dUrl из layout variant).
-    model3dUrl      String?         @map("model_3d_url")
-    crmMetadata     Json?           @map("crm_metadata")
-    sortOrder       Int             @default(0) @map("sort_order")
-    createdAt       DateTime        @default(now()) @map("created_at")
-    updatedAt       DateTime        @updatedAt @map("updated_at")
+    id               Int              @id @default(autoincrement())
+    projectId        Int              @map("project_id")
+    sectionKey       String           @default("") @map("section_key")
+    layoutVariantId  Int?             @map("layout_variant_id")
+    number           String
+    floor            Int
+    rooms            Int
+    areaSqm          Float            @map("area_sqm")
+    priceUzs         BigInt?          @map("price_uzs")
+    pricePerM2Uzs    BigInt?          @map("price_per_m2_uzs")
+    status           ApartmentStatus  @default(AVAILABLE)
+    renovationState  RenovationState  @default(WITHOUT_RENOVATION) @map("renovation_state")
+    apartmentClass   ApartmentClass   @default(ECONOMY) @map("apartment_class")
+    layoutImageUrl   String?          @map("layout_image_url")
+    model3dUrl       String?          @map("model_3d_url")
+    crmMetadata      Json?            @map("crm_metadata")
+    sortOrder        Int              @default(0) @map("sort_order")
+    createdAt        DateTime         @default(now()) @map("created_at")
+    updatedAt        DateTime         @updatedAt @map("updated_at")
 
     project       Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
     layoutVariant LayoutVariant? @relation(fields: [layoutVariantId], references: [id], onDelete: SetNull)
     customers     Customer[]
     leads         Lead[]
+    contracts     Contract[]
 
     @@unique([projectId, sectionKey, number])
     @@index([projectId, floor])
@@ -397,6 +344,249 @@ model ApartmentUnit {
     @@index([layoutVariantId])
     @@map("apartments")
 }
+
+// ─── Customers (Buyers) ───────────────────────────────────────────────────────
+
+model Customer {
+    id                Int      @id @default(autoincrement())
+    projectId         Int      @map("project_id")
+    apartmentId       Int?     @map("apartment_id")
+    name              String
+    phone             String
+    // Extended buyer info
+    passportSeries    String?  @map("passport_series")
+    passportNumber    String?  @map("passport_number")
+    passportIssuedBy  String?  @map("passport_issued_by")
+    passportIssuedAt  DateTime? @map("passport_issued_at")
+    pinfl             String?  // Individual taxpayer number
+    birthDate         DateTime? @map("birth_date")
+    address           String?
+    city              String?
+    region            String?
+    email             String?
+    // CRM fields
+    accessCode        String   @unique @map("access_code")
+    verificationToken String?  @unique @map("verification_token")
+    totalPriceUzs     BigInt?  @map("total_price_uzs")
+    monthlyDueUzs     BigInt?  @map("monthly_due_uzs")
+    notes             String?
+    createdAt         DateTime @default(now()) @map("created_at")
+    updatedAt         DateTime @updatedAt @map("updated_at")
+
+    project   Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+    apartment ApartmentUnit?   @relation(fields: [apartmentId], references: [id], onDelete: SetNull)
+    payments  CustomerPayment[]
+    documents CustomerDocument[]
+    sessions  CustomerSession[]
+    contracts Contract[]
+
+    @@index([projectId])
+    @@index([phone])
+    @@map("customers")
+}
+
+model CustomerSession {
+    id         Int      @id @default(autoincrement())
+    customerId Int      @map("customer_id")
+    token      String   @unique
+    expiresAt  DateTime @map("expires_at")
+    createdAt  DateTime @default(now()) @map("created_at")
+
+    customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+    @@index([customerId])
+    @@index([token])
+    @@map("customer_sessions")
+}
+
+model CustomerPayment {
+    id          Int                 @id @default(autoincrement())
+    customerId  Int                 @map("customer_id")
+    contractId  Int?                @map("contract_id")
+    amountUzs   BigInt              @map("amount_uzs")
+    paidAt      DateTime            @map("paid_at")
+    comment     String?
+    type        CustomerPaymentType @default(OTHER) @map("type")
+    receiptUrl  String?             @map("receipt_url")
+    createdAt   DateTime            @default(now()) @map("created_at")
+    updatedAt   DateTime            @updatedAt @map("updated_at")
+
+    customer             Customer              @relation(fields: [customerId], references: [id], onDelete: Cascade)
+    contract             Contract?             @relation(fields: [contractId], references: [id], onDelete: SetNull)
+    paymentScheduleItems PaymentScheduleItem[]
+
+    @@index([customerId])
+    @@index([contractId])
+    @@map("customer_payments")
+}
+
+model CustomerDocument {
+    id          Int      @id @default(autoincrement())
+    customerId  Int      @map("customer_id")
+    contractId  Int?     @map("contract_id")
+    title       String
+    fileUrl     String   @map("file_url")
+    mimeType    String?  @map("mime_type")
+    isContract  Boolean  @default(false) @map("is_contract")
+    createdAt   DateTime @default(now()) @map("created_at")
+
+    customer Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+    contract Contract? @relation(fields: [contractId], references: [id], onDelete: SetNull)
+
+    @@index([customerId])
+    @@index([contractId])
+    @@map("customer_documents")
+}
+
+// ─── Contracts ────────────────────────────────────────────────────────────────
+
+model Contract {
+    id              Int            @id @default(autoincrement())
+    projectId       Int            @map("project_id")
+    apartmentId     Int            @map("apartment_id")
+    customerId      Int            @map("customer_id")
+    managerId       Int?           @map("manager_id")
+    brokerId        Int?           @map("broker_id")
+
+    /// Auto-generated: PREFIX-N, e.g. AVE-9
+    number          String         @unique
+    status          ContractStatus @default(ACTIVE)
+    paymentMethod   PaymentMethod  @default(INSTALLMENT)
+
+    totalPriceUzs   BigInt         @map("total_price_uzs")
+    discountPercent Float          @default(0) @map("discount_percent")
+    firstPaymentUzs BigInt         @default(0) @map("first_payment_uzs")
+    termMonths      Int            @default(1) @map("term_months")
+    monthlyAmountUzs BigInt?       @map("monthly_amount_uzs")
+
+    contractDate    DateTime       @default(now()) @map("contract_date")
+    notes           String?
+
+    createdAt       DateTime       @default(now()) @map("created_at")
+    updatedAt       DateTime       @updatedAt @map("updated_at")
+
+    project         Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+    apartment       ApartmentUnit    @relation(fields: [apartmentId], references: [id])
+    customer        Customer         @relation(fields: [customerId], references: [id])
+    manager         Developer?       @relation("ContractManager", fields: [managerId], references: [id], onDelete: SetNull)
+    broker          Developer?       @relation("ContractBroker", fields: [brokerId], references: [id], onDelete: SetNull)
+    payments        CustomerPayment[]
+    paymentSchedule PaymentScheduleItem[]
+    documents       CustomerDocument[]
+
+    @@index([projectId])
+    @@index([customerId])
+    @@index([apartmentId])
+    @@index([status])
+    @@map("contracts")
+}
+
+model PaymentScheduleItem {
+    id          Int       @id @default(autoincrement())
+    contractId  Int       @map("contract_id")
+    paymentId   Int?      @map("payment_id")
+    dueDate     DateTime  @map("due_date")
+    amountUzs   BigInt    @map("amount_uzs")
+    isPaid      Boolean   @default(false) @map("is_paid")
+    paidAt      DateTime? @map("paid_at")
+    sortOrder   Int       @default(0) @map("sort_order")
+
+    contract Contract        @relation(fields: [contractId], references: [id], onDelete: Cascade)
+    payment  CustomerPayment? @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+
+    @@index([contractId])
+    @@index([dueDate])
+    @@map("payment_schedule_items")
+}
+
+// ─── Contract Templates ───────────────────────────────────────────────────────
+
+model ContractTemplate {
+    id          Int      @id @default(autoincrement())
+    projectId   Int?     @map("project_id")
+    name        String
+    language    String   @default("uz")
+    type        String   // CONTRACT | GUARANTEE_LETTER | PAYMENT_SCHEDULE
+    templateUrl String   @map("template_url")
+    isDefault   Boolean  @default(false) @map("is_default")
+    variables   Json?
+    createdAt   DateTime @default(now()) @map("created_at")
+    updatedAt   DateTime @updatedAt @map("updated_at")
+
+    project Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+    @@index([projectId])
+    @@map("contract_templates")
+}
+
+// ─── Leads ────────────────────────────────────────────────────────────────────
+
+model Lead {
+    id          Int        @id @default(autoincrement())
+    name        String
+    phone       String
+    floorId     Int?       @map("floor_id")
+    projectId   Int?
+    apartmentId Int?       @map("apartment_id")
+    status      LeadStatus @default(NEW)
+    createdAt   DateTime   @default(now())
+
+    floor     ProjectFloor?  @relation(fields: [floorId], references: [id], onDelete: SetNull)
+    project   Project?       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+    apartment ApartmentUnit? @relation(fields: [apartmentId], references: [id], onDelete: SetNull)
+    feedback  LeadFeedback?
+
+    @@index([projectId])
+    @@index([status])
+    @@index([floorId])
+    @@index([apartmentId])
+    @@map("leads")
+}
+
+model LeadFeedback {
+    id          Int       @id @default(autoincrement())
+    leadId      Int       @unique
+    token       String    @unique
+    rating      Int?
+    comment     String?
+    submittedAt DateTime?
+    createdAt   DateTime  @default(now())
+
+    lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+    @@index([token])
+    @@map("lead_feedback")
+}
+
+// ─── Media & Reviews ──────────────────────────────────────────────────────────
+
+model ProjectMedia {
+    id        Int      @id @default(autoincrement())
+    projectId Int
+    imageUrl  String
+    sortOrder Int      @default(0)
+    createdAt DateTime @default(now())
+
+    project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+    @@index([projectId])
+    @@map("project_media")
+}
+
+model ProjectReview {
+    id        Int      @id @default(autoincrement())
+    projectId Int
+    rating    Int
+    comment   String?
+    createdAt DateTime @default(now())
+
+    project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+    @@index([projectId])
+    @@map("project_reviews")
+}
+
+// ─── Building Progress ────────────────────────────────────────────────────────
 
 model BuildingProgress {
     id              Int      @id @default(autoincrement())
@@ -425,135 +615,98 @@ model ConstructionStage {
     @@map("construction_stages")
 }
 
-model Customer {
-    id            Int      @id @default(autoincrement())
-    projectId     Int      @map("project_id")
-    apartmentId   Int?     @map("apartment_id")
-    name          String
-    phone         String
-    accessCode    String   @unique @map("access_code")
-    verificationToken String? @unique @map("verification_token")
-    totalPriceUzs Int?     @map("total_price_uzs")
-    monthlyDueUzs Int?     @map("monthly_due_uzs")
-    notes         String?
-    createdAt     DateTime @default(now()) @map("created_at")
-    updatedAt     DateTime @updatedAt @map("updated_at")
+// ─── Billing ──────────────────────────────────────────────────────────────────
 
-    project    Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
-    apartment  ApartmentUnit?      @relation(fields: [apartmentId], references: [id], onDelete: SetNull)
-    payments   CustomerPayment[]
-    documents  CustomerDocument[]
-    sessions   CustomerSession[]
+model ProjectSubscription {
+    id                 Int                @id @default(autoincrement())
+    projectId          Int                @unique
+    plan               SubscriptionPlan   @default(START)
+    status             SubscriptionStatus @default(TRIAL)
+    trialStartsAt      DateTime?
+    trialEndsAt        DateTime?
+    currentPeriodStart DateTime?
+    currentPeriodEnd   DateTime?
+    provider           BillingProvider?
+    externalRef        String?
+    createdAt          DateTime           @default(now())
+    updatedAt          DateTime           @updatedAt
 
-    @@index([projectId])
-    @@index([phone])
-    @@map("customers")
-}
+    project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
-model CustomerSession {
-    id         Int      @id @default(autoincrement())
-    customerId Int      @map("customer_id")
-    token      String   @unique
-    expiresAt  DateTime @map("expires_at")
-    createdAt  DateTime @default(now()) @map("created_at")
-
-    customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
-
-    @@index([customerId])
-    @@index([token])
-    @@map("customer_sessions")
-}
-
-model CustomerPayment {
-    id         Int                 @id @default(autoincrement())
-    customerId Int                 @map("customer_id")
-    amountUzs  Int                 @map("amount_uzs")
-    paidAt     DateTime            @map("paid_at")
-    comment    String?
-    type       CustomerPaymentType @default(OTHER) @map("type")
-    createdAt  DateTime            @default(now()) @map("created_at")
-    updatedAt  DateTime            @updatedAt @map("updated_at")
-
-    customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
-
-    @@index([customerId])
-    @@map("customer_payments")
-}
-
-model CustomerDocument {
-    id          Int      @id @default(autoincrement())
-    customerId  Int      @map("customer_id")
-    title       String
-    fileUrl     String   @map("file_url")
-    mimeType    String?  @map("mime_type")
-    isContract  Boolean  @default(false) @map("is_contract")
-    createdAt   DateTime @default(now()) @map("created_at")
-
-    customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
-
-    @@index([customerId])
-    @@map("customer_documents")
-}
-
-model Lead {
-    id          Int        @id @default(autoincrement())
-    name        String
-    phone       String
-    floorId     Int?       @map("floor_id")
-    projectId   Int?
-    apartmentId Int?       @map("apartment_id")
-    status      LeadStatus @default(NEW)
-    createdAt   DateTime   @default(now())
-
-    floor     ProjectFloor? @relation(fields: [floorId], references: [id], onDelete: SetNull)
-    project   Project?      @relation(fields: [projectId], references: [id], onDelete: Cascade)
-    apartment ApartmentUnit? @relation(fields: [apartmentId], references: [id], onDelete: SetNull)
-    feedback  LeadFeedback?
-
-    @@index([projectId])
     @@index([status])
-    @@index([floorId])
-    @@index([apartmentId])
-    @@map("leads")
+    @@index([plan])
+    @@map("project_subscriptions")
 }
 
-model ProjectMedia {
-    id        Int      @id @default(autoincrement())
-    projectId Int
-    imageUrl  String
-    sortOrder Int      @default(0)
-    createdAt DateTime @default(now())
+model PromoCode {
+    id             Int              @id @default(autoincrement())
+    code           String           @unique
+    description    String?
+    benefitType    PromoBenefitType @map("benefit_type")
+    freeDays       Int?             @map("free_days")
+    percentOff     Int?             @map("percent_off")
+    plan           SubscriptionPlan?
+    startsAt       DateTime?        @map("starts_at")
+    expiresAt      DateTime?        @map("expires_at")
+    maxRedemptions Int?             @map("max_redemptions")
+    redeemedCount  Int              @default(0) @map("redeemed_count")
+    active         Boolean          @default(true)
+    createdAt      DateTime         @default(now()) @map("created_at")
+    updatedAt      DateTime         @updatedAt @map("updated_at")
+
+    redemptions PromoRedemption[]
+
+    @@index([active])
+    @@index([expiresAt])
+    @@map("promo_codes")
+}
+
+model PromoRedemption {
+    id          Int      @id @default(autoincrement())
+    promoCodeId Int      @map("promo_code_id")
+    developerId Int?     @map("developer_id")
+    projectId   Int?     @map("project_id")
+    redeemedAt  DateTime @default(now()) @map("redeemed_at")
+
+    promoCode PromoCode  @relation(fields: [promoCodeId], references: [id], onDelete: Cascade)
+    developer Developer? @relation(fields: [developerId], references: [id], onDelete: SetNull)
+    project   Project?   @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+    @@index([promoCodeId])
+    @@index([developerId])
+    @@index([projectId])
+    @@unique([promoCodeId, developerId, projectId])
+    @@map("promo_redemptions")
+}
+
+model BillingInvoice {
+    id          Int             @id @default(autoincrement())
+    projectId   Int
+    provider    BillingProvider
+    amountUsd   Int
+    status      String          @default("PENDING")
+    externalRef String?         @unique
+    checkoutUrl String?
+    metadata    Json?
+    createdAt   DateTime        @default(now())
+    updatedAt   DateTime        @updatedAt
 
     project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
     @@index([projectId])
-    @@map("project_media")
+    @@index([provider, status])
+    @@map("billing_invoices")
 }
 
-model ProjectReview {
-    id        Int      @id @default(autoincrement())
-    projectId Int
-    rating    Int
-    comment   String?
-    createdAt DateTime @default(now())
+model BillingWebhookEvent {
+    id          Int             @id @default(autoincrement())
+    provider    BillingProvider
+    externalRef String
+    status      String
+    signature   String?
+    createdAt   DateTime        @default(now())
 
-    project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-
-    @@index([projectId])
-    @@map("project_reviews")
-}
-
-model LeadFeedback {
-    id           Int      @id @default(autoincrement())
-    leadId       Int      @unique
-    token        String   @unique
-    rating       Int?
-    comment      String?
-    submittedAt  DateTime?
-    createdAt    DateTime @default(now())
-
-    lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
-
-    @@index([token])
-    @@map("lead_feedback")
+    @@unique([provider, externalRef, status])
+    @@index([externalRef])
+    @@map("billing_webhook_events")
 }

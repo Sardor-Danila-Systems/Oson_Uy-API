@@ -112,6 +112,14 @@ export class CustomersService {
         totalPriceUzs: dto.totalPriceUzs ?? null,
         monthlyDueUzs: dto.monthlyDueUzs ?? null,
         notes: dto.notes?.trim() || null,
+        passportSeries: dto.passportSeries?.trim() || null,
+        passportNumber: dto.passportNumber?.trim() || null,
+        passportIssuedBy: dto.passportIssuedBy?.trim() || null,
+        pinfl: dto.pinfl?.trim() || null,
+        address: dto.address?.trim() || null,
+        city: dto.city?.trim() || null,
+        region: dto.region?.trim() || null,
+        email: dto.email?.trim() || null,
       },
       include: { apartment: true },
     });
@@ -316,11 +324,13 @@ export class CustomersService {
       orderBy: { sortOrder: 'asc' },
     });
 
-    const total =
-      customer.totalPriceUzs ??
-      customer.apartment?.priceUzs ??
-      0;
-    const paid = customer.payments.reduce((s, p) => s + p.amountUzs, 0);
+    const total = Number(
+      customer.totalPriceUzs ?? customer.apartment?.priceUzs ?? 0,
+    );
+    const paid = customer.payments.reduce(
+      (s, p) => s + Number(p.amountUzs),
+      0,
+    );
     const remaining = Math.max(0, total - paid);
 
     return {

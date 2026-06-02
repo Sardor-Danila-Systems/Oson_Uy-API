@@ -17,6 +17,8 @@ import { ApartmentsModule } from './apartments/apartments.module';
 import { LayoutVariantsModule } from './layout-variants/layout-variants.module';
 import { CustomersModule } from './customers/customers.module';
 import { CustomerAuthModule } from './customer-auth/customer-auth.module';
+import { ContractsModule } from './contracts/contracts.module';
+import { DocumentGenerationModule } from './document-generation/document-generation.module';
 import { DeveloperAuthGuard } from './common/guards/developer-auth.guard';
 import { ProjectMemberGuard } from './common/guards/project-member.guard';
 
@@ -44,6 +46,8 @@ import { ProjectMemberGuard } from './common/guards/project-member.guard';
     LayoutVariantsModule,
     CustomerAuthModule,
     CustomersModule,
+    ContractsModule,
+    DocumentGenerationModule,
   ],
   providers: [
     PrismaService,

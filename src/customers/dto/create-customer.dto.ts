@@ -46,4 +46,46 @@ export class CreateCustomerDto {
   @IsInt()
   @Min(0)
   monthlyDueUzs?: number | null;
+
+  // ── Паспортные / контактные данные покупателя ──────────────────────────────
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
+  passportSeries?: string;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
+  passportNumber?: string;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
+  passportIssuedBy?: string;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
+  pinfl?: string;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
+  address?: string;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
+  city?: string;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
+  region?: string;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
+  email?: string;
 }

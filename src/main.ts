@@ -5,6 +5,12 @@ import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 
+// Serialize Prisma BigInt money fields (priceUzs, totalPriceUzs, amountUzs, …)
+// as plain numbers in JSON. UZS amounts stay far within Number.MAX_SAFE_INTEGER.
+(BigInt.prototype as unknown as { toJSON: () => number }).toJSON = function () {
+  return Number(this as unknown as bigint);
+};
+
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
