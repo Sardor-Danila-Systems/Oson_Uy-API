@@ -22,7 +22,7 @@ export class ProjectUltimatePlanGuard implements CanActivate {
     >();
     const projectId = Number(request.params?.projectId);
     if (!projectId || Number.isNaN(projectId)) {
-      return true;
+      throw new ForbiddenException('Invalid or missing project ID');
     }
 
     const project = await this.prisma.project.findUnique({

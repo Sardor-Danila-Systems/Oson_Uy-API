@@ -26,7 +26,7 @@ export class CustomersService {
 
   private async newAccessCode(): Promise<string> {
     for (let i = 0; i < 10; i++) {
-      const code = randomBytes(4).toString('hex').toUpperCase();
+      const code = randomBytes(6).toString('hex').toUpperCase();
       const taken = await this.prisma.customer.findUnique({
         where: { accessCode: code },
         select: { id: true },
