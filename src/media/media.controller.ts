@@ -63,6 +63,17 @@ export class MediaController {
       throw new BadRequestException('File is required');
     }
 
+    const allowed = [
+      'image/jpeg',
+      'image/png',
+      'image/webp',
+      'image/gif',
+      'application/pdf',
+    ];
+    if (!allowed.includes(file.mimetype)) {
+      throw new BadRequestException('Only images and PDFs are allowed');
+    }
+
     const url = await this.mediaService.uploadImage(file);
     return { url };
   }
