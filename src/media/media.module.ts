@@ -8,5 +8,6 @@ import { DeveloperAuthGuard } from '../common/guards/developer-auth.guard';
   imports: [AuthModule],
   controllers: [MediaController],
   providers: [MediaService, DeveloperAuthGuard],
+  exports: [MediaService],
 })
 export class MediaModule {}

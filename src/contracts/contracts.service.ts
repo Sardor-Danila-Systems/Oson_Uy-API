@@ -218,13 +218,27 @@ export class ContractsService {
     const number = await this.generateContractNumber(projectId);
     const contractDate = dto.contractDate ? new Date(dto.contractDate) : new Date();
     const totalPriceUzs = BigInt(Math.round(dto.totalPriceUzs));
-    const firstPaymentUzs = BigInt(Math.round(dto.firstPaymentUzs));
     const discountPercent = dto.discountPercent ?? 0;
     const termMonths = dto.termMonths;
 
+    // For full / cash payments without an explicit first payment, the whole
+    // sum is paid up-front. Otherwise the first payment is the down payment.
+    const isFullUpfront =
+      dto.paymentMethod === 'FULL' || dto.paymentMethod === 'CASH';
+    let firstPaymentUzs = BigInt(Math.round(dto.firstPaymentUzs));
+    if (isFullUpfront && firstPaymentUzs <= 0n) {
+      firstPaymentUzs = totalPriceUzs;
+    }
+    if (firstPaymentUzs > totalPriceUzs) firstPaymentUzs = totalPriceUzs;
+
+    // The contract is fully covered by the up-front payment
+    const fullyPaidUpfront =
+      totalPriceUzs > 0n && firstPaymentUzs >= totalPriceUzs;
+
     // Determine apartment status from payment method
-    const aptStatus: ApartmentStatus =
-      dto.paymentMethod === 'MORTGAGE'
+    const aptStatus: ApartmentStatus = fullyPaidUpfront
+      ? ApartmentStatus.SOLD
+      : dto.paymentMethod === 'MORTGAGE'
         ? ApartmentStatus.MORTGAGE
         : dto.paymentMethod === 'INSTALLMENT'
           ? ApartmentStatus.INSTALLMENT
@@ -239,7 +253,7 @@ export class ContractsService {
           managerId: dto.managerId ?? developerId,
           brokerId: dto.brokerId,
           number,
-          status: 'ACTIVE',
+          status: fullyPaidUpfront ? 'COMPLETED' : 'ACTIVE',
           paymentMethod: dto.paymentMethod,
           totalPriceUzs,
           discountPercent,
@@ -255,7 +269,22 @@ export class ContractsService {
         include: CONTRACT_INCLUDE,
       });
 
-      // Generate payment schedule
+      // Record the first / up-front payment so it is counted everywhere:
+      // contract balance, customer cabinet and project analytics.
+      if (firstPaymentUzs > 0n) {
+        await tx.customerPayment.create({
+          data: {
+            customerId: dto.customerId,
+            contractId: created.id,
+            amountUzs: firstPaymentUzs,
+            paidAt: contractDate,
+            type: fullyPaidUpfront ? 'FULL' : 'DEPOSIT',
+            comment: 'Первоначальный взнос',
+          },
+        });
+      }
+
+      // Generate payment schedule (installments after the first payment)
       const scheduleItems = this.generateSchedule(
         created.id,
         totalPriceUzs,
@@ -307,6 +336,40 @@ export class ContractsService {
 
     await this.prisma.$transaction(async (tx) => {
       await tx.contract.update({ where: { id: contractId }, data });
+
+      // Keep the recorded first-payment in sync when it is edited, so the
+      // contract balance / analytics stay correct.
+      if (dto.firstPaymentUzs !== undefined) {
+        const newFirst = BigInt(Math.round(dto.firstPaymentUzs));
+        const deposit = await tx.customerPayment.findFirst({
+          where: {
+            contractId,
+            comment: 'Первоначальный взнос',
+          },
+          orderBy: { paidAt: 'asc' },
+        });
+        if (deposit) {
+          if (newFirst > 0n) {
+            await tx.customerPayment.update({
+              where: { id: deposit.id },
+              data: { amountUzs: newFirst },
+            });
+          } else {
+            await tx.customerPayment.delete({ where: { id: deposit.id } });
+          }
+        } else if (newFirst > 0n) {
+          await tx.customerPayment.create({
+            data: {
+              customerId: existing.customerId,
+              contractId,
+              amountUzs: newFirst,
+              paidAt: existing.contractDate,
+              type: 'DEPOSIT',
+              comment: 'Первоначальный взнос',
+            },
+          });
+        }
+      }
 
       if (dto.status === 'CANCELED') {
         await tx.apartmentUnit.update({

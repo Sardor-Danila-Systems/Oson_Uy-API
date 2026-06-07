@@ -47,21 +47,34 @@ export class DocumentGenerationService {
     type: DocType,
     lang: DocLang,
   ): Promise<Buffer> {
-    // 1. Check project-specific template
+    // 1. Project template in the requested language
     if (projectId) {
       const tmpl = await this.prisma.contractTemplate.findFirst({
         where: { projectId, type, language: lang },
         orderBy: { isDefault: 'desc' },
       });
       if (tmpl) return this.fetchBuffer(tmpl.templateUrl);
+
+      // 1b. Project template of this type in any language
+      const anyLang = await this.prisma.contractTemplate.findFirst({
+        where: { projectId, type },
+        orderBy: { isDefault: 'desc' },
+      });
+      if (anyLang) return this.fetchBuffer(anyLang.templateUrl);
     }
 
-    // 2. Fallback to global template
+    // 2. Global template (requested language, then any language)
     const global = await this.prisma.contractTemplate.findFirst({
       where: { projectId: null, type, language: lang },
       orderBy: { isDefault: 'desc' },
     });
     if (global) return this.fetchBuffer(global.templateUrl);
+
+    const globalAny = await this.prisma.contractTemplate.findFirst({
+      where: { projectId: null, type },
+      orderBy: { isDefault: 'desc' },
+    });
+    if (globalAny) return this.fetchBuffer(globalAny.templateUrl);
 
     // 3. Fallback to local file template
     const fileName = `${type.toLowerCase()}_${lang}.docx`;
@@ -77,7 +90,7 @@ export class DocumentGenerationService {
     }
 
     throw new NotFoundException(
-      `Template not found: type=${type}, lang=${lang}`,
+      'Шаблон документа не загружен. Загрузите образец (.docx) в разделе «Договоры → Шаблоны».',
     );
   }
 
@@ -196,6 +209,50 @@ export class DocumentGenerationService {
     };
   }
 
+  /**
+   * Catalog of placeholders a developer can use inside their .docx template.
+   * Placeholders use single curly braces, e.g. {customer_name}.
+   */
+  getAvailableVariables(): { key: string; label: string }[] {
+    return [
+      { key: 'contract_number', label: 'Номер договора' },
+      { key: 'contract_date', label: 'Дата договора' },
+      { key: 'payment_method', label: 'Способ оплаты' },
+      { key: 'term_months', label: 'Срок (мес.)' },
+      { key: 'discount_percent', label: 'Скидка (%)' },
+      { key: 'total_price', label: 'Сумма договора' },
+      { key: 'first_payment', label: 'Первоначальный взнос' },
+      { key: 'monthly_payment', label: 'Ежемесячный платёж' },
+      { key: 'paid_amount', label: 'Оплачено' },
+      { key: 'remaining_amount', label: 'Остаток' },
+      { key: 'project_name', label: 'Название ЖК' },
+      { key: 'project_location', label: 'Адрес ЖК' },
+      { key: 'developer_name', label: 'Застройщик' },
+      { key: 'developer_phone', label: 'Телефон застройщика' },
+      { key: 'developer_legal_address', label: 'Юр. адрес застройщика' },
+      { key: 'developer_office_address', label: 'Офис застройщика' },
+      { key: 'apartment_number', label: 'Номер квартиры' },
+      { key: 'apartment_floor', label: 'Этаж' },
+      { key: 'apartment_block', label: 'Блок / секция' },
+      { key: 'apartment_rooms', label: 'Комнат' },
+      { key: 'apartment_area', label: 'Площадь (м²)' },
+      { key: 'apartment_price_per_m2', label: 'Цена за м²' },
+      { key: 'apartment_total_price', label: 'Стоимость квартиры' },
+      { key: 'customer_name', label: 'ФИО покупателя' },
+      { key: 'customer_phone', label: 'Телефон покупателя' },
+      { key: 'customer_passport_series', label: 'Серия паспорта' },
+      { key: 'customer_passport_number', label: 'Номер паспорта' },
+      { key: 'customer_passport_issued_by', label: 'Паспорт выдан' },
+      { key: 'customer_pinfl', label: 'ПИНФЛ' },
+      { key: 'customer_birth_date', label: 'Дата рождения' },
+      { key: 'customer_address', label: 'Адрес покупателя' },
+      { key: 'customer_city', label: 'Город' },
+      { key: 'customer_region', label: 'Регион' },
+      { key: 'manager_name', label: 'Менеджер' },
+      { key: 'manager_phone', label: 'Телефон менеджера' },
+    ];
+  }
+
   // ── Public API ─────────────────────────────────────────────────────────────
 
   async generateContractDocx(
@@ -261,6 +318,9 @@ export class DocumentGenerationService {
       const doc = new Docxtemplater(zip, {
         paragraphLoop: true,
         linebreaks: true,
+        // Render unknown / typo'd placeholders as empty instead of throwing,
+        // so an imperfect developer template still produces a document.
+        nullGetter: () => '',
       });
       doc.render(data);
       return doc.getZip().generate({ type: 'nodebuffer' }) as Buffer;

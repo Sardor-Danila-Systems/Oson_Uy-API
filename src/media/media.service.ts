@@ -19,9 +19,26 @@ export class MediaService {
     return this.uploadToSupabase(file);
   }
 
-  private async uploadToSupabase(file: Express.Multer.File): Promise<string> {
-    const extension = file.originalname.split('.').pop() || 'jpg';
-    const path = `uploads/${Date.now()}-${Math.random()
+  /** Upload an arbitrary document (e.g. a .docx contract template). */
+  uploadDocument(
+    file: Express.Multer.File,
+    folder = 'templates',
+  ): Promise<string> {
+    if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+      throw new InternalServerErrorException(
+        'Supabase storage env is not configured',
+      );
+    }
+
+    return this.uploadToSupabase(file, folder);
+  }
+
+  private async uploadToSupabase(
+    file: Express.Multer.File,
+    folder = 'uploads',
+  ): Promise<string> {
+    const extension = file.originalname.split('.').pop() || 'bin';
+    const path = `${folder}/${Date.now()}-${Math.random()
       .toString(36)
       .slice(2)}.${extension}`;
 
