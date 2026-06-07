@@ -458,6 +458,8 @@ model Contract {
     firstPaymentUzs BigInt         @default(0) @map("first_payment_uzs")
     termMonths      Int            @default(1) @map("term_months")
     monthlyAmountUzs BigInt?       @map("monthly_amount_uzs")
+    /// Day of month (1-31) the client pays each installment
+    paymentDay      Int?           @map("payment_day")
 
     contractDate    DateTime       @default(now()) @map("contract_date")
     notes           String?

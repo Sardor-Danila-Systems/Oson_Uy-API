@@ -145,6 +145,7 @@ export class DocumentGenerationService {
       contract_status: contract.status,
       payment_method: contract.paymentMethod,
       term_months: contract.termMonths,
+      payment_day: contract.paymentDay ?? '',
       discount_percent: contract.discountPercent,
 
       // Prices
@@ -219,6 +220,7 @@ export class DocumentGenerationService {
       { key: 'contract_date', label: 'Дата договора' },
       { key: 'payment_method', label: 'Способ оплаты' },
       { key: 'term_months', label: 'Срок (мес.)' },
+      { key: 'payment_day', label: 'День платежа (число месяца)' },
       { key: 'discount_percent', label: 'Скидка (%)' },
       { key: 'total_price', label: 'Сумма договора' },
       { key: 'first_payment', label: 'Первоначальный взнос' },

@@ -4,6 +4,7 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  Max,
   Min,
 } from 'class-validator';
 import { ContractStatus, PaymentMethod } from '@prisma/client';
@@ -42,6 +43,13 @@ export class CreateContractDto {
   @IsInt()
   @Min(1)
   termMonths: number;
+
+  /** Day of month (1-31) the client pays each installment */
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(31)
+  paymentDay?: number;
 
   @IsOptional()
   @IsString()

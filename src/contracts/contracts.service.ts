@@ -101,12 +101,25 @@ export class ContractsService {
     return `${prefix}-${count + 1}`;
   }
 
+  /** Clamp a day-of-month to a valid value for the given year/month. */
+  private dueDateFor(
+    contractDate: Date,
+    monthsAhead: number,
+    paymentDay: number,
+  ): Date {
+    const year = contractDate.getFullYear();
+    const month = contractDate.getMonth() + monthsAhead;
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    return new Date(year, month, Math.min(paymentDay, daysInMonth));
+  }
+
   private generateSchedule(
     contractId: number,
     totalPriceUzs: bigint,
     firstPaymentUzs: bigint,
     termMonths: number,
     contractDate: Date,
+    paymentDay: number,
   ) {
     const remaining = totalPriceUzs - firstPaymentUzs;
     if (remaining <= 0n || termMonths <= 1) return [];
@@ -114,16 +127,12 @@ export class ContractsService {
     const monthly = remaining / BigInt(termMonths);
     const lastExtra = remaining - monthly * BigInt(termMonths);
 
-    return Array.from({ length: termMonths }, (_, i) => {
-      const dueDate = new Date(contractDate);
-      dueDate.setMonth(dueDate.getMonth() + i + 1);
-      return {
-        contractId,
-        dueDate,
-        amountUzs: i === termMonths - 1 ? monthly + lastExtra : monthly,
-        sortOrder: i + 1,
-      };
-    });
+    return Array.from({ length: termMonths }, (_, i) => ({
+      contractId,
+      dueDate: this.dueDateFor(contractDate, i + 1, paymentDay),
+      amountUzs: i === termMonths - 1 ? monthly + lastExtra : monthly,
+      sortOrder: i + 1,
+    }));
   }
 
   // ── CRUD ──────────────────────────────────────────────────────────────────
@@ -217,6 +226,8 @@ export class ContractsService {
 
     const number = await this.generateContractNumber(projectId);
     const contractDate = dto.contractDate ? new Date(dto.contractDate) : new Date();
+    // Day of month for installments — defaults to the contract date's day
+    const paymentDay = dto.paymentDay ?? contractDate.getDate();
     const totalPriceUzs = BigInt(Math.round(dto.totalPriceUzs));
     const discountPercent = dto.discountPercent ?? 0;
     const termMonths = dto.termMonths;
@@ -259,6 +270,7 @@ export class ContractsService {
           discountPercent,
           firstPaymentUzs,
           termMonths,
+          paymentDay,
           monthlyAmountUzs:
             termMonths > 1
               ? (totalPriceUzs - firstPaymentUzs) / BigInt(termMonths)
@@ -291,6 +303,7 @@ export class ContractsService {
         firstPaymentUzs,
         termMonths,
         contractDate,
+        paymentDay,
       );
       if (scheduleItems.length > 0) {
         await tx.paymentScheduleItem.createMany({ data: scheduleItems });
@@ -333,9 +346,32 @@ export class ContractsService {
       data.discountPercent = dto.discountPercent;
     if (dto.termMonths !== undefined) data.termMonths = dto.termMonths;
     if (dto.paymentMethod !== undefined) data.paymentMethod = dto.paymentMethod;
+    if (dto.paymentDay !== undefined) data.paymentDay = dto.paymentDay;
 
     await this.prisma.$transaction(async (tx) => {
       await tx.contract.update({ where: { id: contractId }, data });
+
+      // Shift the due day of all UNPAID installments to the new payment day,
+      // keeping each item's month/year (paid items stay as history).
+      if (dto.paymentDay !== undefined) {
+        const day = dto.paymentDay;
+        const items = await tx.paymentScheduleItem.findMany({
+          where: { contractId, isPaid: false },
+        });
+        for (const item of items) {
+          const d = new Date(item.dueDate);
+          const daysInMonth = new Date(
+            d.getFullYear(),
+            d.getMonth() + 1,
+            0,
+          ).getDate();
+          d.setDate(Math.min(day, daysInMonth));
+          await tx.paymentScheduleItem.update({
+            where: { id: item.id },
+            data: { dueDate: d },
+          });
+        }
+      }
 
       // Keep the recorded first-payment in sync when it is edited, so the
       // contract balance / analytics stay correct.
