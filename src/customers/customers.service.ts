@@ -78,7 +78,67 @@ export class CustomersService {
       this.prisma.customer.count({ where }),
     ]);
 
-    return { items, total, page, limit };
+    // Attach contract finance (paid / remaining / overdue debt) per customer
+    const customerIds = items.map((c) => c.id);
+    const contracts = customerIds.length
+      ? await this.prisma.contract.findMany({
+          where: {
+            projectId,
+            customerId: { in: customerIds },
+            status: { not: 'CANCELED' },
+          },
+          orderBy: { contractDate: 'desc' },
+          select: {
+            id: true,
+            number: true,
+            customerId: true,
+            status: true,
+            totalPriceUzs: true,
+            payments: { select: { amountUzs: true } },
+            paymentSchedule: {
+              select: { isPaid: true, dueDate: true, amountUzs: true },
+            },
+          },
+        })
+      : [];
+
+    const now = new Date();
+    const financeByCustomer = new Map<
+      number,
+      {
+        contractId: number;
+        contractNumber: string;
+        status: string;
+        totalPriceUzs: bigint;
+        paidUzs: bigint;
+        remainingUzs: bigint;
+        debtUzs: bigint;
+      }
+    >();
+    for (const c of contracts) {
+      if (financeByCustomer.has(c.customerId)) continue; // latest only
+      const paid = c.payments.reduce((s, p) => s + p.amountUzs, 0n);
+      const remaining = c.totalPriceUzs - paid;
+      const debt = c.paymentSchedule
+        .filter((s) => !s.isPaid && new Date(s.dueDate) < now)
+        .reduce((s, i) => s + i.amountUzs, 0n);
+      financeByCustomer.set(c.customerId, {
+        contractId: c.id,
+        contractNumber: c.number,
+        status: c.status,
+        totalPriceUzs: c.totalPriceUzs,
+        paidUzs: paid,
+        remainingUzs: remaining,
+        debtUzs: debt,
+      });
+    }
+
+    const enriched = items.map((c) => ({
+      ...c,
+      finance: financeByCustomer.get(c.id) ?? null,
+    }));
+
+    return { items: enriched, total, page, limit };
   }
 
   async create(

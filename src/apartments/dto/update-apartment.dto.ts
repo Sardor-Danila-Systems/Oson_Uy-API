@@ -52,6 +52,16 @@ export class UpdateApartmentDto {
   @Min(0)
   priceUzs?: number | null;
 
+  @ApiProperty({
+    required: false,
+    description: 'Цена за 1 м². Полная цена пересчитается = площадь × цена за м²',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  pricePerM2Uzs?: number | null;
+
   @ApiProperty({ enum: ApartmentStatus, required: false })
   @IsOptional()
   @IsEnum(ApartmentStatus)

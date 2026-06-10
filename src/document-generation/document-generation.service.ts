@@ -137,6 +137,13 @@ export class DocumentGenerationService {
 
     const paidUzs = contract.payments.reduce((s, p) => s + p.amountUzs, 0n);
     const remainingUzs = contract.totalPriceUzs - paidUzs;
+    const firstPaymentPercent =
+      contract.totalPriceUzs > 0n
+        ? (
+            (Number(contract.firstPaymentUzs) / Number(contract.totalPriceUzs)) *
+            100
+          ).toFixed(2)
+        : '0.00';
 
     return {
       // Contract
@@ -151,6 +158,7 @@ export class DocumentGenerationService {
       // Prices
       total_price: this.formatUzs(contract.totalPriceUzs),
       first_payment: this.formatUzs(contract.firstPaymentUzs),
+      first_payment_percent: firstPaymentPercent,
       monthly_payment: this.formatUzs(contract.monthlyAmountUzs),
       paid_amount: this.formatUzs(paidUzs),
       remaining_amount: this.formatUzs(remainingUzs),
@@ -224,6 +232,7 @@ export class DocumentGenerationService {
       { key: 'discount_percent', label: 'Скидка (%)' },
       { key: 'total_price', label: 'Сумма договора' },
       { key: 'first_payment', label: 'Первоначальный взнос' },
+      { key: 'first_payment_percent', label: 'Взнос, % от суммы' },
       { key: 'monthly_payment', label: 'Ежемесячный платёж' },
       { key: 'paid_amount', label: 'Оплачено' },
       { key: 'remaining_amount', label: 'Остаток' },

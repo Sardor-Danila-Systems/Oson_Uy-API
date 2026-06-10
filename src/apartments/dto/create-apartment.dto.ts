@@ -52,6 +52,17 @@ export class CreateApartmentDto {
   @Min(0)
   priceUzs?: number;
 
+  @ApiProperty({
+    required: false,
+    example: 9500000,
+    description: 'Цена за 1 м². Полная цена = площадь × цена за м²',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  pricePerM2Uzs?: number;
+
   @ApiProperty({ enum: ApartmentStatus, required: false })
   @IsOptional()
   @IsEnum(ApartmentStatus)

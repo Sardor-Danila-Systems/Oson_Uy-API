@@ -44,6 +44,31 @@ export class ApartmentsService {
 
   private static readonly MAX_BULK_UNITS = 2500;
 
+  /**
+   * Resolve total price and price-per-m² from whatever the user provided.
+   * If price-per-m² is given, the total price is computed (area × per-m²).
+   * Otherwise the per-m² is derived from the total price.
+   */
+  private resolvePrice(
+    areaSqm: number,
+    priceUzs?: number | null,
+    pricePerM2Uzs?: number | null,
+  ): { priceUzs: number | null; pricePerM2Uzs: number | null } {
+    if (pricePerM2Uzs != null && pricePerM2Uzs > 0 && areaSqm > 0) {
+      return {
+        pricePerM2Uzs,
+        priceUzs: Math.round(pricePerM2Uzs * areaSqm),
+      };
+    }
+    if (priceUzs != null && priceUzs > 0 && areaSqm > 0) {
+      return { priceUzs, pricePerM2Uzs: Math.round(priceUzs / areaSqm) };
+    }
+    return {
+      priceUzs: priceUzs ?? null,
+      pricePerM2Uzs: pricePerM2Uzs ?? null,
+    };
+  }
+
   async assertProjectMember(projectId: number, developerId: number) {
     const member = await this.prisma.projectMember.findFirst({
       where: { projectId, developerId },
@@ -115,6 +140,11 @@ export class ApartmentsService {
     }
     try {
       const sectionKey = (dto.sectionKey ?? '').trim();
+      const price = this.resolvePrice(
+        dto.areaSqm,
+        dto.priceUzs,
+        dto.pricePerM2Uzs,
+      );
       return await this.prisma.apartmentUnit.create({
         data: {
           projectId,
@@ -123,7 +153,8 @@ export class ApartmentsService {
           floor: dto.floor,
           rooms: dto.rooms,
           areaSqm: dto.areaSqm,
-          priceUzs: dto.priceUzs ?? null,
+          priceUzs: price.priceUzs,
+          pricePerM2Uzs: price.pricePerM2Uzs,
           status: dto.status ?? undefined,
           layoutVariantId: dto.layoutVariantId ?? null,
           layoutImageUrl: dto.layoutImageUrl?.trim() || null,
@@ -194,11 +225,19 @@ export class ApartmentsService {
         throw new BadRequestException('Допустимый диапазон этажей: от -5 до 100');
       }
 
+      const price = this.resolvePrice(
+        sec.areaSqm,
+        sec.priceUzs,
+        sec.pricePerM2Uzs,
+      );
+
+      // Apartments are numbered as plain sequential numbers within the block
+      // (1, 2, 3 …) running through the floors — like UySot.
+      let counter = 0;
       for (let f = floorLo; f <= floorHi; f++) {
         for (let u = 1; u <= sec.unitsPerFloor; u++) {
-          const number = sk
-            ? `${sk}-${f}-${String(u).padStart(2, '0')}`
-            : `${f}-${String(u).padStart(2, '0')}`;
+          counter += 1;
+          const number = String(counter);
           const dedupe = `${sk}\n${number}`;
           if (seenNumbers.has(dedupe)) {
             throw new BadRequestException(`Дубликат номера внутри запроса: ${number}`);
@@ -217,7 +256,8 @@ export class ApartmentsService {
             floor: f,
             rooms: sec.rooms,
             areaSqm: sec.areaSqm,
-            priceUzs: sec.priceUzs ?? null,
+            priceUzs: price.priceUzs,
+            pricePerM2Uzs: price.pricePerM2Uzs,
             layoutVariantId: sec.layoutVariantId ?? null,
             sortOrder: f * 100 + u,
             ...(meta
@@ -271,6 +311,23 @@ export class ApartmentsService {
       await this.assertLayoutVariantInProject(projectId, dto.layoutVariantId);
     }
 
+    // Resolve price/price-per-m² so total price stays consistent
+    const effArea = dto.areaSqm ?? apt.areaSqm;
+    let setPrice: number | null | undefined;
+    let setPerM2: number | null | undefined;
+    if (dto.pricePerM2Uzs !== undefined) {
+      setPerM2 = dto.pricePerM2Uzs;
+      if (dto.pricePerM2Uzs != null && dto.pricePerM2Uzs > 0 && effArea > 0) {
+        setPrice = Math.round(dto.pricePerM2Uzs * effArea);
+      }
+    }
+    if (dto.priceUzs !== undefined) {
+      setPrice = dto.priceUzs;
+      if (dto.priceUzs != null && dto.priceUzs > 0 && effArea > 0) {
+        setPerM2 = Math.round(dto.priceUzs / effArea);
+      }
+    }
+
     try {
       const updated = await this.prisma.apartmentUnit.update({
         where: { id: apartmentId },
@@ -282,7 +339,8 @@ export class ApartmentsService {
           ...(dto.floor != null ? { floor: dto.floor } : {}),
           ...(dto.rooms != null ? { rooms: dto.rooms } : {}),
           ...(dto.areaSqm != null ? { areaSqm: dto.areaSqm } : {}),
-          ...(dto.priceUzs !== undefined ? { priceUzs: dto.priceUzs } : {}),
+          ...(setPrice !== undefined ? { priceUzs: setPrice } : {}),
+          ...(setPerM2 !== undefined ? { pricePerM2Uzs: setPerM2 } : {}),
           ...(dto.status != null ? { status: dto.status } : {}),
           ...(dto.layoutVariantId !== undefined
             ? { layoutVariantId: dto.layoutVariantId }
