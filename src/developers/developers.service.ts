@@ -2,6 +2,7 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { randomBytes } from 'crypto';
 import { PrismaService } from '../prisma.service';
+import { ExpoPushService } from '../common/services/expo-push.service';
 import { CreateDeveloperDto } from './dto/create-developer.dto';
 import { UpdateDeveloperDto } from './dto/update-developer.dto';
 import { RegisterPushTokenDto } from './dto/register-push-token.dto';
@@ -11,6 +12,7 @@ export class DevelopersService {
   constructor(
     private prisma: PrismaService,
     private configService: ConfigService,
+    private expoPushService: ExpoPushService,
   ) {}
 
   async create(createDeveloperDto: CreateDeveloperDto) {
@@ -86,6 +88,10 @@ export class DevelopersService {
         platform: dto.platform,
       },
     });
+
+    // Send test notification to verify token works
+    await this.expoPushService.sendTestNotification(dto.expoPushToken);
+
     return { ok: true };
   }
 

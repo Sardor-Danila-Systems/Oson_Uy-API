@@ -5,9 +5,10 @@ import { PrismaService } from '../prisma.service';
 import { AuthModule } from '../auth/auth.module';
 import { DeveloperAuthGuard } from '../common/guards/developer-auth.guard';
 import { ConfigModule } from '@nestjs/config';
+import { CommonModule } from '../common/common.module';
 
 @Module({
-  imports: [AuthModule, ConfigModule],
+  imports: [AuthModule, ConfigModule, CommonModule],
   controllers: [DevelopersController],
   providers: [DevelopersService, PrismaService, DeveloperAuthGuard],
 })

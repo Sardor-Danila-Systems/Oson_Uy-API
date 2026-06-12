@@ -9,6 +9,27 @@ export class ExpoPushService {
 
   constructor(private prisma: PrismaService) {}
 
+  async sendTestNotification(expoPushToken: string) {
+    if (!Expo.isExpoPushToken(expoPushToken)) {
+      return { ok: false, error: 'Invalid Expo push token' };
+    }
+
+    const messages: ExpoPushMessage[] = [{
+      to: expoPushToken,
+      sound: 'default',
+      title: 'Test Notification',
+      body: 'Push token synchronized successfully!',
+    }];
+
+    try {
+      const tickets = await this.expo.sendPushNotificationsAsync(messages);
+      return { ok: true, sent: tickets.length };
+    } catch (e) {
+      this.logger.warn(`Push send failed: ${String(e)}`);
+      return { ok: false, error: String(e) };
+    }
+  }
+
   async notifyDeveloperNewLead(params: {
     developerId: number;
     title: string;
