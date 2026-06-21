@@ -19,6 +19,7 @@ import { CustomersModule } from './customers/customers.module';
 import { CustomerAuthModule } from './customer-auth/customer-auth.module';
 import { ContractsModule } from './contracts/contracts.module';
 import { DocumentGenerationModule } from './document-generation/document-generation.module';
+import { Scenes3DModule } from './scenes-3d/scenes-3d.module';
 import { DeveloperAuthGuard } from './common/guards/developer-auth.guard';
 import { ProjectMemberGuard } from './common/guards/project-member.guard';
 
@@ -48,6 +49,7 @@ import { ProjectMemberGuard } from './common/guards/project-member.guard';
     CustomersModule,
     ContractsModule,
     DocumentGenerationModule,
+    Scenes3DModule,
   ],
   providers: [
     PrismaService,

@@ -208,6 +208,8 @@ model Project {
     buildingProgress   BuildingProgress?
     contracts          Contract[]
     contractTemplates  ContractTemplate[]
+    buildings          Building[]
+    scene3d            Scene3D?
 
     @@index([developerId])
     @@map("projects")
@@ -329,11 +331,16 @@ model ApartmentUnit {
     model3dUrl       String?          @map("model_3d_url")
     crmMetadata      Json?            @map("crm_metadata")
     sortOrder        Int              @default(0) @map("sort_order")
+    // 3D viewer binding
+    buildingId       Int?             @map("building_id")
+    meshNode         String?          @map("mesh_node")
+    meshMapped       Boolean          @default(false) @map("mesh_mapped")
     createdAt        DateTime         @default(now()) @map("created_at")
     updatedAt        DateTime         @updatedAt @map("updated_at")
 
     project       Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
     layoutVariant LayoutVariant? @relation(fields: [layoutVariantId], references: [id], onDelete: SetNull)
+    building      Building?      @relation(fields: [buildingId], references: [id], onDelete: SetNull)
     customers     Customer[]
     leads         Lead[]
     contracts     Contract[]
@@ -342,7 +349,98 @@ model ApartmentUnit {
     @@index([projectId, floor])
     @@index([projectId, status])
     @@index([layoutVariantId])
+    @@index([buildingId])
     @@map("apartments")
+}
+
+// ─── 3D Viewer (Osonly 3D) ────────────────────────────────────────────────────
+
+enum Scene3DStatus {
+    DRAFT
+    PROCESSING
+    READY
+    FAILED
+}
+
+enum Asset3DKind {
+    EXTERIOR
+    INTERIOR
+    SITE
+    TILESET
+}
+
+enum Asset3DStatus {
+    UPLOADED
+    PROCESSING
+    READY
+    FAILED
+}
+
+model Building {
+    id          Int      @id @default(autoincrement())
+    projectId   Int      @map("project_id")
+    key         String // "B1", "8-blok" — matches mesh node prefix
+    name        String?
+    floorsCount Int?     @map("floors_count")
+    sortOrder   Int      @default(0) @map("sort_order")
+    createdAt   DateTime @default(now()) @map("created_at")
+    updatedAt   DateTime @updatedAt @map("updated_at")
+
+    project    Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+    apartments ApartmentUnit[]
+    assets     Asset3D[]
+
+    @@unique([projectId, key])
+    @@index([projectId])
+    @@map("buildings")
+}
+
+model Scene3D {
+    id               Int           @id @default(autoincrement())
+    projectId        Int           @unique @map("project_id")
+    status           Scene3DStatus @default(DRAFT)
+    publishedAssetId Int?          @map("published_asset_id")
+    version          Int           @default(0)
+    spawnPosition    Json?         @map("spawn_position")
+    spawnTarget      Json?         @map("spawn_target")
+    navmeshUrl       String?       @map("navmesh_url")
+    manifestUrl      String?       @map("manifest_url")
+    createdAt        DateTime      @default(now()) @map("created_at")
+    updatedAt        DateTime      @updatedAt @map("updated_at")
+
+    project Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+    assets  Asset3D[]
+
+    @@map("scenes_3d")
+}
+
+model Asset3D {
+    id           Int           @id @default(autoincrement())
+    sceneId      Int           @map("scene_id")
+    buildingId   Int?          @map("building_id")
+    version      Int           @default(1)
+    kind         Asset3DKind   @default(EXTERIOR)
+    format       String        @default("glb") // "glb" | "3dtiles"
+    status       Asset3DStatus @default(UPLOADED)
+    rawUrl       String        @map("raw_url")
+    optimizedUrl String?       @map("optimized_url")
+    manifestUrl  String?       @map("manifest_url")
+    sizeBytes    BigInt?       @map("size_bytes")
+    triangles    Int?
+    drawCalls    Int?          @map("draw_calls")
+    bbox         Json?
+    lodLevels    Int           @default(1) @map("lod_levels")
+    checksum     String?
+    error        String?
+    createdAt    DateTime      @default(now()) @map("created_at")
+    updatedAt    DateTime      @updatedAt @map("updated_at")
+
+    scene    Scene3D   @relation(fields: [sceneId], references: [id], onDelete: Cascade)
+    building Building? @relation(fields: [buildingId], references: [id], onDelete: SetNull)
+
+    @@index([sceneId])
+    @@index([buildingId])
+    @@map("assets_3d")
 }
 
 // ─── Customers (Buyers) ───────────────────────────────────────────────────────
