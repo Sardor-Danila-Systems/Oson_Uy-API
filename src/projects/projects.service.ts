@@ -225,6 +225,43 @@ export class ProjectsService {
     return filtered.map((project) => this.enrichProject(project));
   }
 
+  /**
+   * Projects owned by (or shared with) the authenticated developer only.
+   * Used by the dashboard so developers never see each other's projects.
+   */
+  async findMine(developerId: number, filters?: FilterProjectDto) {
+    const where: Prisma.ProjectWhereInput = {
+      OR: [
+        { developerId },
+        { members: { some: { developerId } } },
+      ],
+    };
+
+    if (filters?.location) {
+      where.location = { contains: filters.location, mode: 'insensitive' };
+    }
+    if (filters?.hasInstallment === true) where.hasInstallment = true;
+    if (filters?.hasInstallment === false) where.hasInstallment = false;
+
+    const projects = await this.prisma.project.findMany({
+      where,
+      include: {
+        developer: true,
+        media: { orderBy: { sortOrder: 'asc' } },
+        floors: { include: ProjectsService.floorInclude },
+        leads: { include: { feedback: true } },
+        subscription: true,
+        progressMilestones: ProjectsService.progressOrderBy,
+      },
+    });
+
+    const filtered = projects.filter((project) =>
+      this.projectMatchesFilters(project, filters),
+    );
+
+    return filtered.map((project) => this.enrichProject(project));
+  }
+
   async findOne(id: number) {
     const project = await this.loadProjectOrThrow(id);
     const enriched = this.enrichProject(project);

@@ -91,6 +91,20 @@ export class ProjectsController {
     return this.projectsService.findAll(filters);
   }
 
+  @Get('mine')
+  @UseGuards(DeveloperAuthGuard)
+  @ApiOperation({ summary: "Projects owned by the authenticated developer" })
+  @ApiResponse({ status: 200, description: "Developer's own projects" })
+  findMine(
+    @Query() filters: FilterProjectDto,
+    @Req() request: Request & { developerId?: number },
+  ) {
+    if (!request.developerId) {
+      throw new BadRequestException('Developer identity is required');
+    }
+    return this.projectsService.findMine(request.developerId, filters);
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Get a specific project by ID' })
   @ApiParam({ name: 'id', description: 'Project ID', type: Number })
