@@ -164,10 +164,15 @@ async function run() {
       ]
     : [0, 0, 0];
 
-  await supabase.storage.from(bucket).upload(glbPath, Buffer.from(optimized), {
-    contentType: 'model/gltf-binary',
-    upsert: true,
-  });
+  const glbUp = await supabase.storage
+    .from(bucket)
+    .upload(glbPath, Buffer.from(optimized), {
+      contentType: 'model/gltf-binary',
+      upsert: true,
+    });
+  if (glbUp.error) {
+    throw new Error(`storage upload (glb) failed: ${glbUp.error.message}`);
+  }
 
   const glbUrl = supabase.storage.from(bucket).getPublicUrl(glbPath).data
     .publicUrl;
@@ -183,12 +188,15 @@ async function run() {
     apartmentNodes: nodes.filter((n) => n.kind === 'apartment').length,
     nodes,
   };
-  await supabase.storage
+  const manifestUp = await supabase.storage
     .from(bucket)
     .upload(manifestPath, Buffer.from(JSON.stringify(manifest)), {
       contentType: 'application/json',
       upsert: true,
     });
+  if (manifestUp.error) {
+    throw new Error(`storage upload (manifest) failed: ${manifestUp.error.message}`);
+  }
   const manifestUrl = supabase.storage.from(bucket).getPublicUrl(manifestPath)
     .data.publicUrl;
 
