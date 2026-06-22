@@ -1,32 +1,54 @@
 /**
- * Osonly 3D asset pipeline (v0).
+ * Osonly 3D manifest extractor (v1, memory-safe).
  * Usage: node scripts/optimize-glb.mjs <assetId>
  *
- * download raw GLB → optimize (dedup/prune/weld + Draco best-effort)
- *   → extract node manifest (apartment nodes + centroids + scene bbox)
- *   → upload optimized.glb + manifest.json to storage
- *   → update Asset3D (status READY) in the DB
+ * Reads ONLY the glTF JSON chunk of the GLB (via HTTP Range) — never decodes
+ * geometry, never re-encodes. Extracts node names + world-space bbox/centroid
+ * (from the POSITION accessor min/max, which glTF requires) + triangle counts.
  *
- * Runs out-of-process so gltf-transform/WASM never enters the Nest bundle.
+ * Memory footprint ≈ size of the JSON chunk (KB), independent of model size —
+ * so it stays well under a 512 MB instance. Heavy mesh optimization (Draco/
+ * KTX2) is intentionally NOT done here; the developer pre-compresses the .glb.
  */
-import { NodeIO } from '@gltf-transform/core';
-import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
-import { dedup, prune, weld, draco } from '@gltf-transform/functions';
-import draco3d from 'draco3dgltf';
 import { PrismaClient } from '@prisma/client';
 import { createClient } from '@supabase/supabase-js';
 
 try {
   await import('dotenv/config');
 } catch {
-  /* dotenv optional — env is inherited from the parent process */
+  /* env inherited from parent */
 }
 
 const assetId = Number(process.argv[2]);
 const prisma = new PrismaClient();
 
-function applyMat4(m, [x, y, z]) {
-  // column-major 4x4 * (x,y,z,1)
+// ── tiny mat4 helpers (column-major) ────────────────────────────────────────
+function fromTRS(t, r, s) {
+  const [x, y, z, w] = r;
+  const x2 = x + x, y2 = y + y, z2 = z + z;
+  const xx = x * x2, xy = x * y2, xz = x * z2;
+  const yy = y * y2, yz = y * z2, zz = z * z2;
+  const wx = w * x2, wy = w * y2, wz = w * z2;
+  const [sx, sy, sz] = s;
+  return [
+    (1 - (yy + zz)) * sx, (xy + wz) * sx, (xz - wy) * sx, 0,
+    (xy - wz) * sy, (1 - (xx + zz)) * sy, (yz + wx) * sy, 0,
+    (xz + wy) * sz, (yz - wx) * sz, (1 - (xx + yy)) * sz, 0,
+    t[0], t[1], t[2], 1,
+  ];
+}
+function mul(a, b) {
+  const o = new Array(16);
+  for (let c = 0; c < 4; c++)
+    for (let r = 0; r < 4; r++)
+      o[c * 4 + r] =
+        a[r] * b[c * 4] +
+        a[4 + r] * b[c * 4 + 1] +
+        a[8 + r] * b[c * 4 + 2] +
+        a[12 + r] * b[c * 4 + 3];
+  return o;
+}
+function xform(m, [x, y, z]) {
   const w = m[3] * x + m[7] * y + m[11] * z + m[15] || 1;
   return [
     (m[0] * x + m[4] * y + m[8] * z + m[12]) / w,
@@ -34,26 +56,47 @@ function applyMat4(m, [x, y, z]) {
     (m[2] * x + m[6] * y + m[10] * z + m[14]) / w,
   ];
 }
+function localMatrix(node) {
+  if (Array.isArray(node.matrix) && node.matrix.length === 16) return node.matrix;
+  return fromTRS(
+    node.translation ?? [0, 0, 0],
+    node.rotation ?? [0, 0, 0, 1],
+    node.scale ?? [1, 1, 1],
+  );
+}
 
-/** classify node as apartment from extras.osonly or APT_ name convention */
+// ── fetch only the glTF JSON (no geometry) ──────────────────────────────────
+async function fetchRange(url, start, end) {
+  const res = await fetch(url, { headers: { Range: `bytes=${start}-${end}` } });
+  if (!res.ok && res.status !== 206) throw new Error(`range fetch ${res.status}`);
+  return Buffer.from(await res.arrayBuffer());
+}
+
+async function readGltfJson(url) {
+  const head = await fetchRange(url, 0, 11);
+  if (head.toString('ascii', 0, 4) === 'glTF') {
+    const h = await fetchRange(url, 0, 19);
+    const jsonLen = h.readUInt32LE(12);
+    const jsonBuf = await fetchRange(url, 20, 20 + jsonLen - 1);
+    return JSON.parse(jsonBuf.toString('utf8'));
+  }
+  // .gltf (plain JSON)
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`download failed (${res.status})`);
+  return res.json();
+}
+
 function nodeRef(node) {
-  const extras = node.getExtras?.() ?? {};
-  const osonly = extras?.osonly;
-  if (osonly?.kind === 'apartment') {
-    return { kind: 'apartment', ref: String(osonly.ref ?? node.getName()) };
-  }
-  const name = node.getName() ?? '';
-  if (/^APT[_-]/i.test(name)) {
-    return { kind: 'apartment', ref: name.replace(/^APT[_-]/i, '') };
-  }
+  const osonly = node.extras?.osonly;
+  if (osonly?.kind === 'apartment')
+    return { kind: 'apartment', ref: String(osonly.ref ?? node.name ?? '') };
+  if (node.name && /^APT[_-]/i.test(node.name))
+    return { kind: 'apartment', ref: node.name.replace(/^APT[_-]/i, '') };
   return null;
 }
 
 async function run() {
-  const asset = await prisma.asset3D.findUnique({
-    where: { id: assetId },
-    include: { scene: true },
-  });
+  const asset = await prisma.asset3D.findUnique({ where: { id: assetId } });
   if (!asset) throw new Error(`Asset ${assetId} not found`);
 
   const supabase = createClient(
@@ -62,160 +105,131 @@ async function run() {
   );
   const bucket = process.env.SUPABASE_BUCKET || 'oson-uy';
 
-  // 1. download raw GLB
-  const rawRes = await fetch(asset.rawUrl);
-  if (!rawRes.ok) throw new Error(`download failed (${rawRes.status})`);
-  const rawBytes = new Uint8Array(await rawRes.arrayBuffer());
+  const gltf = await readGltfJson(asset.rawUrl);
+  const nodes = gltf.nodes ?? [];
+  const meshes = gltf.meshes ?? [];
+  const accessors = gltf.accessors ?? [];
+  const sceneIdx = gltf.scene ?? 0;
+  const roots = gltf.scenes?.[sceneIdx]?.nodes ?? nodes.map((_, i) => i);
 
-  // 2. read with Draco-capable IO
-  const io = new NodeIO()
-    .registerExtensions(ALL_EXTENSIONS)
-    .registerDependencies({
-      'draco3d.decoder': await draco3d.createDecoderModule(),
-      'draco3d.encoder': await draco3d.createEncoderModule(),
-    });
-  const document = await io.readBinary(rawBytes);
-
-  // 3. manifest — node names, centroids, triangle count, scene bbox
-  const nodes = [];
+  const out = [];
   let triangles = 0;
-  const sceneMin = [Infinity, Infinity, Infinity];
-  const sceneMax = [-Infinity, -Infinity, -Infinity];
+  const sMin = [Infinity, Infinity, Infinity];
+  const sMax = [-Infinity, -Infinity, -Infinity];
 
-  for (const node of document.getRoot().listNodes()) {
-    const mesh = node.getMesh();
-    if (!mesh) continue;
-    const world = node.getWorldMatrix();
-    const localMin = [Infinity, Infinity, Infinity];
-    const localMax = [-Infinity, -Infinity, -Infinity];
+  const walk = (idx, parentWorld) => {
+    const node = nodes[idx];
+    if (!node) return;
+    const world = mul(parentWorld, localMatrix(node));
 
-    for (const prim of mesh.listPrimitives()) {
-      const pos = prim.getAttribute('POSITION');
-      if (!pos) continue;
-      const idx = prim.getIndices();
-      triangles += (idx ? idx.getCount() : pos.getCount()) / 3;
-      const mn = pos.getMinNormalized ? pos.getMinNormalized([]) : pos.getMin([]);
-      const mx = pos.getMaxNormalized ? pos.getMaxNormalized([]) : pos.getMax([]);
-      for (let i = 0; i < 3; i++) {
-        localMin[i] = Math.min(localMin[i], mn[i]);
-        localMax[i] = Math.max(localMax[i], mx[i]);
+    if (node.mesh != null && meshes[node.mesh]) {
+      const lo = [Infinity, Infinity, Infinity];
+      const hi = [-Infinity, -Infinity, -Infinity];
+      let has = false;
+      for (const prim of meshes[node.mesh].primitives ?? []) {
+        const posIdx = prim.attributes?.POSITION;
+        const pos = posIdx != null ? accessors[posIdx] : null;
+        const idxAcc = prim.indices != null ? accessors[prim.indices] : null;
+        const count = idxAcc?.count ?? pos?.count ?? 0;
+        triangles += count / 3;
+        if (pos?.min && pos?.max) {
+          has = true;
+          for (let i = 0; i < 3; i++) {
+            lo[i] = Math.min(lo[i], pos.min[i]);
+            hi[i] = Math.max(hi[i], pos.max[i]);
+          }
+        }
       }
+
+      let centroid = null;
+      let wMin = null;
+      let wMax = null;
+      if (has) {
+        wMin = [Infinity, Infinity, Infinity];
+        wMax = [-Infinity, -Infinity, -Infinity];
+        for (let xi = 0; xi < 2; xi++)
+          for (let yi = 0; yi < 2; yi++)
+            for (let zi = 0; zi < 2; zi++) {
+              const c = xform(world, [
+                xi ? hi[0] : lo[0],
+                yi ? hi[1] : lo[1],
+                zi ? hi[2] : lo[2],
+              ]);
+              for (let i = 0; i < 3; i++) {
+                wMin[i] = Math.min(wMin[i], c[i]);
+                wMax[i] = Math.max(wMax[i], c[i]);
+                sMin[i] = Math.min(sMin[i], c[i]);
+                sMax[i] = Math.max(sMax[i], c[i]);
+              }
+            }
+        centroid = [
+          +((wMin[0] + wMax[0]) / 2).toFixed(3),
+          +((wMin[1] + wMax[1]) / 2).toFixed(3),
+          +((wMin[2] + wMax[2]) / 2).toFixed(3),
+        ];
+      }
+
+      const ref = nodeRef(node);
+      out.push({
+        node: node.name || `node_${idx}`,
+        kind: ref?.kind ?? 'mesh',
+        ...(ref?.ref ? { ref: ref.ref } : {}),
+        ...(centroid ? { centroid, bbox: [wMin, wMax] } : {}),
+      });
     }
-    if (!isFinite(localMin[0])) continue;
 
-    // world AABB from the 8 local corners
-    const corners = [];
-    for (let xi = 0; xi < 2; xi++)
-      for (let yi = 0; yi < 2; yi++)
-        for (let zi = 0; zi < 2; zi++)
-          corners.push(
-            applyMat4(world, [
-              xi ? localMax[0] : localMin[0],
-              yi ? localMax[1] : localMin[1],
-              zi ? localMax[2] : localMin[2],
-            ]),
-          );
-    const wMin = [Infinity, Infinity, Infinity];
-    const wMax = [-Infinity, -Infinity, -Infinity];
-    for (const c of corners)
-      for (let i = 0; i < 3; i++) {
-        wMin[i] = Math.min(wMin[i], c[i]);
-        wMax[i] = Math.max(wMax[i], c[i]);
-        sceneMin[i] = Math.min(sceneMin[i], c[i]);
-        sceneMax[i] = Math.max(sceneMax[i], c[i]);
-      }
-    const centroid = [
-      (wMin[0] + wMax[0]) / 2,
-      (wMin[1] + wMax[1]) / 2,
-      (wMin[2] + wMax[2]) / 2,
-    ];
+    for (const child of node.children ?? []) walk(child, world);
+  };
 
-    const ref = nodeRef(node);
-    nodes.push({
-      node: node.getName() || `node_${nodes.length}`,
-      kind: ref?.kind ?? 'mesh',
-      ...(ref?.ref ? { ref: ref.ref } : {}),
-      centroid: centroid.map((n) => Number(n.toFixed(3))),
-      bbox: [wMin, wMax],
-    });
-  }
+  for (const r of roots) walk(r, fromTRS([0, 0, 0], [0, 0, 0, 1], [1, 1, 1]));
 
-  // 4. optimize geometry (best-effort Draco)
-  try {
-    await document.transform(weld(), dedup(), prune());
-    await document.transform(draco());
-  } catch (e) {
-    // fall back to uncompressed-but-cleaned if Draco fails on this model
-    console.error('draco step skipped:', e?.message);
-  }
-
-  const optimized = await io.writeBinary(document);
-
-  // 5. upload optimized GLB + manifest
-  const base = `scenes-3d/optimized/${asset.sceneId}/${asset.id}-${Date.now()}`;
-  const glbPath = `${base}.glb`;
-  const manifestPath = `${base}.manifest.json`;
-  const sceneBbox = isFinite(sceneMin[0]) ? [sceneMin, sceneMax] : null;
+  const sceneBbox = isFinite(sMin[0]) ? [sMin, sMax] : null;
   const center = sceneBbox
     ? [
-        (sceneMin[0] + sceneMax[0]) / 2,
-        (sceneMin[1] + sceneMax[1]) / 2,
-        (sceneMin[2] + sceneMax[2]) / 2,
+        (sMin[0] + sMax[0]) / 2,
+        (sMin[1] + sMax[1]) / 2,
+        (sMin[2] + sMax[2]) / 2,
       ]
     : [0, 0, 0];
 
-  const glbUp = await supabase.storage
-    .from(bucket)
-    .upload(glbPath, Buffer.from(optimized), {
-      contentType: 'model/gltf-binary',
-      upsert: true,
-    });
-  if (glbUp.error) {
-    throw new Error(`storage upload (glb) failed: ${glbUp.error.message}`);
-  }
-
-  const glbUrl = supabase.storage.from(bucket).getPublicUrl(glbPath).data
-    .publicUrl;
-
+  // The viewer loads the uploaded GLB directly (developer pre-compresses it).
   const manifest = {
     assetId: asset.id,
     sceneId: asset.sceneId,
     format: 'glb',
-    url: glbUrl,
+    url: asset.rawUrl,
     bbox: sceneBbox,
     center,
     triangles: Math.round(triangles),
-    apartmentNodes: nodes.filter((n) => n.kind === 'apartment').length,
-    nodes,
+    apartmentNodes: out.filter((n) => n.kind === 'apartment').length,
+    nodes: out,
   };
-  const manifestUp = await supabase.storage
+
+  const manifestPath = `scenes-3d/manifests/${asset.sceneId}/${asset.id}-${Date.now()}.json`;
+  const up = await supabase.storage
     .from(bucket)
     .upload(manifestPath, Buffer.from(JSON.stringify(manifest)), {
       contentType: 'application/json',
       upsert: true,
     });
-  if (manifestUp.error) {
-    throw new Error(`storage upload (manifest) failed: ${manifestUp.error.message}`);
-  }
+  if (up.error) throw new Error(`storage upload (manifest) failed: ${up.error.message}`);
   const manifestUrl = supabase.storage.from(bucket).getPublicUrl(manifestPath)
     .data.publicUrl;
 
-  // 6. mark READY
   await prisma.asset3D.update({
     where: { id: asset.id },
     data: {
       status: 'READY',
-      optimizedUrl: glbUrl,
+      optimizedUrl: asset.rawUrl,
       manifestUrl,
       triangles: Math.round(triangles),
       bbox: sceneBbox,
-      sizeBytes: BigInt(optimized.byteLength),
       error: null,
     },
   });
 
   console.log(
-    `asset ${asset.id} READY — ${nodes.length} nodes, ${Math.round(triangles)} tris, ${(optimized.byteLength / 1024 / 1024).toFixed(2)} MB`,
+    `asset ${asset.id} READY — ${out.length} nodes (${manifest.apartmentNodes} apartments), ${Math.round(triangles)} tris`,
   );
 }
 

@@ -51,7 +51,9 @@ export class Scenes3DController {
   @UseInterceptors(
     FileInterceptor('file', {
       storage: memoryStorage(),
-      limits: { fileSize: 400 * 1024 * 1024 }, // 400 MB
+      // Buffered in memory then streamed to storage — keep modest so a single
+      // upload can't OOM a 512 MB instance. Developers pre-compress the .glb.
+      limits: { fileSize: 80 * 1024 * 1024 }, // 80 MB
     }),
   )
   uploadAsset(
