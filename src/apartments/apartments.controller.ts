@@ -26,6 +26,10 @@ import { CreateApartmentDto } from './dto/create-apartment.dto';
 import { UpdateApartmentDto } from './dto/update-apartment.dto';
 import { FilterApartmentDto } from './dto/filter-apartment.dto';
 import { BulkGenerateApartmentsDto } from './dto/bulk-generate-apartments.dto';
+import {
+  BulkUpdateApartmentsDto,
+  DeleteSectionDto,
+} from './dto/bulk-update-apartments.dto';
 
 @ApiTags('apartments')
 @ApiBearerAuth()
@@ -86,6 +90,30 @@ export class ApartmentsController {
     @Req() request: Request & { developerId?: number },
   ) {
     return this.apartmentsService.create(projectId, dto, request.developerId!);
+  }
+
+  @Patch('bulk-update')
+  @ApiOperation({ summary: 'Batch-edit apartments by block/floor' })
+  bulkUpdate(
+    @Param('projectId', ParseIntPipe) projectId: number,
+    @Body() dto: BulkUpdateApartmentsDto,
+    @Req() request: Request & { developerId?: number },
+  ) {
+    return this.apartmentsService.bulkUpdate(projectId, dto, request.developerId!);
+  }
+
+  @Post('delete-section')
+  @ApiOperation({ summary: 'Delete a whole block (section)' })
+  deleteSection(
+    @Param('projectId', ParseIntPipe) projectId: number,
+    @Body() dto: DeleteSectionDto,
+    @Req() request: Request & { developerId?: number },
+  ) {
+    return this.apartmentsService.deleteSection(
+      projectId,
+      dto.sectionKey,
+      request.developerId!,
+    );
   }
 
   @Patch(':apartmentId')

@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, ApartmentStatus, RenovationState } from '@prisma/client';
 import { PrismaService } from '../prisma.service';
 import { CreateApartmentDto } from './dto/create-apartment.dto';
 import { UpdateApartmentDto } from './dto/update-apartment.dto';
@@ -369,6 +369,103 @@ export class ApartmentsService {
       ) {
         throw new BadRequestException(
           'Квартира с таким номером уже есть в этом проекте (учитывается блок)',
+        );
+      }
+      throw e;
+    }
+  }
+
+  /** Batch-edit apartments by block and/or floor (or explicit ids). */
+  async bulkUpdate(
+    projectId: number,
+    dto: {
+      sectionKey?: string;
+      floor?: number;
+      apartmentIds?: number[];
+      rooms?: number;
+      areaSqm?: number;
+      priceUzs?: number | null;
+      pricePerM2Uzs?: number | null;
+      status?: ApartmentStatus;
+      renovationState?: RenovationState;
+      layoutImageUrl?: string | null;
+    },
+    developerId: number,
+  ) {
+    await this.assertProjectMember(projectId, developerId);
+
+    const where: Prisma.ApartmentUnitWhereInput = { projectId };
+    if (dto.sectionKey !== undefined) where.sectionKey = dto.sectionKey.trim();
+    if (dto.floor != null) where.floor = dto.floor;
+    if (dto.apartmentIds?.length) where.id = { in: dto.apartmentIds };
+
+    if (
+      dto.sectionKey === undefined &&
+      dto.floor == null &&
+      !dto.apartmentIds?.length
+    ) {
+      throw new BadRequestException(
+        'Укажите блок, этаж или список квартир для изменения',
+      );
+    }
+
+    const apts = await this.prisma.apartmentUnit.findMany({
+      where,
+      select: { id: true, areaSqm: true },
+    });
+    if (!apts.length) return { updated: 0 };
+
+    const common: Prisma.ApartmentUnitUpdateInput = {};
+    if (dto.rooms != null) common.rooms = dto.rooms;
+    if (dto.status != null) common.status = dto.status;
+    if (dto.renovationState != null) common.renovationState = dto.renovationState;
+    if (dto.layoutImageUrl !== undefined)
+      common.layoutImageUrl = dto.layoutImageUrl;
+    if (dto.areaSqm != null) common.areaSqm = dto.areaSqm;
+
+    await this.prisma.$transaction(
+      apts.map((apt) => {
+        const effArea = dto.areaSqm ?? apt.areaSqm;
+        const data: Prisma.ApartmentUnitUpdateInput = { ...common };
+        if (dto.pricePerM2Uzs !== undefined) {
+          data.pricePerM2Uzs = dto.pricePerM2Uzs;
+          if (dto.pricePerM2Uzs != null && dto.pricePerM2Uzs > 0 && effArea > 0)
+            data.priceUzs = Math.round(dto.pricePerM2Uzs * effArea);
+        }
+        if (dto.priceUzs !== undefined) {
+          data.priceUzs = dto.priceUzs;
+          if (dto.priceUzs != null && dto.priceUzs > 0 && effArea > 0)
+            data.pricePerM2Uzs = Math.round(dto.priceUzs / effArea);
+        }
+        return this.prisma.apartmentUnit.update({
+          where: { id: apt.id },
+          data,
+        });
+      }),
+    );
+
+    return { updated: apts.length };
+  }
+
+  /** Delete a whole block (section) of apartments. */
+  async deleteSection(
+    projectId: number,
+    sectionKey: string,
+    developerId: number,
+  ) {
+    await this.assertProjectMember(projectId, developerId);
+    try {
+      const res = await this.prisma.apartmentUnit.deleteMany({
+        where: { projectId, sectionKey: sectionKey.trim() },
+      });
+      return { deleted: res.count };
+    } catch (e) {
+      if (
+        e instanceof Prisma.PrismaClientKnownRequestError &&
+        e.code === 'P2003'
+      ) {
+        throw new BadRequestException(
+          'В блоке есть квартиры с договорами. Сначала удалите эти договоры.',
         );
       }
       throw e;
