@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { spawn } from 'child_process';
 import * as path from 'path';
+import * as fs from 'fs';
 import { PrismaService } from '../prisma.service';
 import { MediaService } from '../media/media.service';
 
@@ -135,7 +136,7 @@ export class Scenes3DService {
       ? (kind as 'EXTERIOR' | 'INTERIOR' | 'SITE' | 'TILESET')
       : 'EXTERIOR';
 
-    return this.prisma.asset3D.create({
+    const asset = await this.prisma.asset3D.create({
       data: {
         sceneId: scene.id,
         buildingId,
@@ -146,31 +147,48 @@ export class Scenes3DService {
         sizeBytes: BigInt(file.size),
       },
     });
+
+    // Auto-start processing so "upload → it just works" — no manual click.
+    await this.spawnPipeline(asset.id);
+    return { ...asset, status: 'PROCESSING' as const };
   }
 
-  /** Kick off the optimization pipeline (download → optimize → manifest → upload). */
-  async processAsset(projectId: number, assetId: number, developerId: number) {
-    await this.assertMember(projectId, developerId);
-    const asset = await this.prisma.asset3D.findFirst({
-      where: { id: assetId, scene: { projectId } },
-    });
-    if (!asset) throw new NotFoundException('Asset not found');
-
+  /**
+   * Mark the asset PROCESSING and run the manifest pipeline out-of-process
+   * (so gltf parsing never blocks the request thread or enters the Nest bundle).
+   */
+  private async spawnPipeline(assetId: number) {
+    const script = path.join(process.cwd(), 'scripts', 'optimize-glb.mjs');
+    if (!fs.existsSync(script)) {
+      await this.prisma.asset3D.update({
+        where: { id: assetId },
+        data: {
+          status: 'FAILED',
+          error: 'Скрипт обработки не найден на сервере (scripts/optimize-glb.mjs).',
+        },
+      });
+      return;
+    }
     await this.prisma.asset3D.update({
       where: { id: assetId },
       data: { status: 'PROCESSING', error: null },
     });
-
-    // Run the pipeline out-of-process so gltf-transform/WASM never enters the
-    // Nest webpack bundle and never blocks the request thread.
-    const script = path.join(process.cwd(), 'scripts', 'optimize-glb.mjs');
     const child = spawn(process.execPath, [script, String(assetId)], {
       detached: true,
       stdio: 'ignore',
       env: process.env,
     });
     child.unref();
+  }
 
+  /** Manually (re)run the pipeline — e.g. retry after FAILED. */
+  async processAsset(projectId: number, assetId: number, developerId: number) {
+    await this.assertMember(projectId, developerId);
+    const asset = await this.prisma.asset3D.findFirst({
+      where: { id: assetId, scene: { projectId } },
+    });
+    if (!asset) throw new NotFoundException('Asset not found');
+    await this.spawnPipeline(assetId);
     return { ok: true, assetId, status: 'PROCESSING' };
   }
 
@@ -294,6 +312,11 @@ export class Scenes3DService {
         'Asset не обработан. Дождитесь статуса READY.',
       );
     }
+
+    // Best-effort auto-bind apartments to mesh nodes before going live, so a
+    // freshly uploaded scene already has clickable apartments where the model
+    // is named correctly (APT_… / extras.osonly).
+    await this.autoMap(projectId, developerId).catch(() => null);
 
     const scene = await this.ensureScene(projectId);
     return this.prisma.scene3D.update({
