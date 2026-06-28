@@ -6,6 +6,7 @@ import { AuthModule } from '../auth/auth.module';
 import { MediaModule } from '../media/media.module';
 import { DeveloperAuthGuard } from '../common/guards/developer-auth.guard';
 import { ProjectMemberGuard } from '../common/guards/project-member.guard';
+import { ProjectUltimatePlanGuard } from '../common/guards/project-ultimate-plan.guard';
 
 @Module({
   imports: [AuthModule, MediaModule],
@@ -15,6 +16,7 @@ import { ProjectMemberGuard } from '../common/guards/project-member.guard';
     PrismaService,
     DeveloperAuthGuard,
     ProjectMemberGuard,
+    ProjectUltimatePlanGuard,
   ],
   exports: [Scenes3DService],
 })

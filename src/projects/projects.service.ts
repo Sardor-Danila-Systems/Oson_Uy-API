@@ -508,7 +508,9 @@ export class ProjectsService {
     return {
       ...rest,
       developer: ProjectsService.toCatalogDeveloper(developer),
+      // PRO now includes all former PREMIUM perks (Verified, Popular, top of catalog)
       isPopular:
+        project.subscription?.plan === SubscriptionPlan.PRO ||
         project.subscription?.plan === SubscriptionPlan.PREMIUM ||
         project.subscription?.plan === SubscriptionPlan.ULTIMATE,
       badgeVerified:
@@ -517,6 +519,7 @@ export class ProjectsService {
         project.subscription?.plan === SubscriptionPlan.ULTIMATE,
       badgeTrusted: project.subscription?.plan === SubscriptionPlan.ULTIMATE,
       topInCatalog:
+        project.subscription?.plan === SubscriptionPlan.PRO ||
         project.subscription?.plan === SubscriptionPlan.PREMIUM ||
         project.subscription?.plan === SubscriptionPlan.ULTIMATE,
       topInHome: project.subscription?.plan === SubscriptionPlan.ULTIMATE,
@@ -666,8 +669,8 @@ export class ProjectsService {
     if (!imageUrls) return;
     const limits: Record<SubscriptionPlan, number> = {
       START: 3,
-      PRO: 5,
-      PREMIUM: 7,
+      PRO: 7,
+      PREMIUM: 7, // legacy alias of PRO (no longer offered)
       ULTIMATE: Number.POSITIVE_INFINITY,
     };
     if (imageUrls.length > limits[plan]) {

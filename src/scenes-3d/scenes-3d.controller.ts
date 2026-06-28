@@ -17,6 +17,7 @@ import { memoryStorage } from 'multer';
 import { Request } from 'express';
 import { DeveloperAuthGuard } from '../common/guards/developer-auth.guard';
 import { ProjectMemberGuard } from '../common/guards/project-member.guard';
+import { ProjectUltimatePlanGuard } from '../common/guards/project-ultimate-plan.guard';
 import { Scenes3DService } from './scenes-3d.service';
 
 type DevRequest = Request & { developerId?: number };
@@ -36,7 +37,7 @@ export class Scenes3DController {
 
   @Get('assets')
   @ApiBearerAuth()
-  @UseGuards(DeveloperAuthGuard, ProjectMemberGuard)
+  @UseGuards(DeveloperAuthGuard, ProjectMemberGuard, ProjectUltimatePlanGuard)
   listAssets(
     @Param('projectId', ParseIntPipe) projectId: number,
     @Req() req: DevRequest,
@@ -47,7 +48,7 @@ export class Scenes3DController {
   @Post('assets')
   @ApiBearerAuth()
   @ApiConsumes('multipart/form-data')
-  @UseGuards(DeveloperAuthGuard, ProjectMemberGuard)
+  @UseGuards(DeveloperAuthGuard, ProjectMemberGuard, ProjectUltimatePlanGuard)
   @UseInterceptors(
     FileInterceptor('file', {
       storage: memoryStorage(),
@@ -67,7 +68,7 @@ export class Scenes3DController {
 
   @Post('assets/:assetId/process')
   @ApiBearerAuth()
-  @UseGuards(DeveloperAuthGuard, ProjectMemberGuard)
+  @UseGuards(DeveloperAuthGuard, ProjectMemberGuard, ProjectUltimatePlanGuard)
   processAsset(
     @Param('projectId', ParseIntPipe) projectId: number,
     @Param('assetId', ParseIntPipe) assetId: number,
@@ -78,7 +79,7 @@ export class Scenes3DController {
 
   @Delete('assets/:assetId')
   @ApiBearerAuth()
-  @UseGuards(DeveloperAuthGuard, ProjectMemberGuard)
+  @UseGuards(DeveloperAuthGuard, ProjectMemberGuard, ProjectUltimatePlanGuard)
   deleteAsset(
     @Param('projectId', ParseIntPipe) projectId: number,
     @Param('assetId', ParseIntPipe) assetId: number,
@@ -89,7 +90,7 @@ export class Scenes3DController {
 
   @Get('mapping')
   @ApiBearerAuth()
-  @UseGuards(DeveloperAuthGuard, ProjectMemberGuard)
+  @UseGuards(DeveloperAuthGuard, ProjectMemberGuard, ProjectUltimatePlanGuard)
   getMapping(
     @Param('projectId', ParseIntPipe) projectId: number,
     @Req() req: DevRequest,
@@ -99,7 +100,7 @@ export class Scenes3DController {
 
   @Post('map')
   @ApiBearerAuth()
-  @UseGuards(DeveloperAuthGuard, ProjectMemberGuard)
+  @UseGuards(DeveloperAuthGuard, ProjectMemberGuard, ProjectUltimatePlanGuard)
   map(
     @Param('projectId', ParseIntPipe) projectId: number,
     @Req() req: DevRequest,
@@ -115,7 +116,7 @@ export class Scenes3DController {
 
   @Post('auto-map')
   @ApiBearerAuth()
-  @UseGuards(DeveloperAuthGuard, ProjectMemberGuard)
+  @UseGuards(DeveloperAuthGuard, ProjectMemberGuard, ProjectUltimatePlanGuard)
   autoMap(
     @Param('projectId', ParseIntPipe) projectId: number,
     @Req() req: DevRequest,
@@ -125,7 +126,7 @@ export class Scenes3DController {
 
   @Post('publish')
   @ApiBearerAuth()
-  @UseGuards(DeveloperAuthGuard, ProjectMemberGuard)
+  @UseGuards(DeveloperAuthGuard, ProjectMemberGuard, ProjectUltimatePlanGuard)
   publish(
     @Param('projectId', ParseIntPipe) projectId: number,
     @Req() req: DevRequest,
