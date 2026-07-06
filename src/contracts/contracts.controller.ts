@@ -109,6 +109,40 @@ export class ContractsController {
     return this.service.addPayment(projectId, id, req.developerId!, dto);
   }
 
+  @Patch(':id/payments/:paymentId')
+  updatePayment(
+    @Param('projectId', ParseIntPipe) projectId: number,
+    @Param('id', ParseIntPipe) id: number,
+    @Param('paymentId', ParseIntPipe) paymentId: number,
+    @Req() req: DevRequest,
+    @Body() dto: { amountUzs?: number; paidAt?: string; comment?: string | null },
+  ) {
+    return this.service.updatePayment(
+      projectId,
+      id,
+      paymentId,
+      req.developerId!,
+      dto,
+    );
+  }
+
+  @Patch(':id/schedule/:itemId')
+  updateScheduleItem(
+    @Param('projectId', ParseIntPipe) projectId: number,
+    @Param('id', ParseIntPipe) id: number,
+    @Param('itemId', ParseIntPipe) itemId: number,
+    @Req() req: DevRequest,
+    @Body() dto: { amountUzs?: number; dueDate?: string },
+  ) {
+    return this.service.updateScheduleItem(
+      projectId,
+      id,
+      itemId,
+      req.developerId!,
+      dto,
+    );
+  }
+
   @Delete(':id/payments/:paymentId')
   removePayment(
     @Param('projectId', ParseIntPipe) projectId: number,

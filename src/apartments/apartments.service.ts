@@ -523,15 +523,27 @@ export class ApartmentsService {
             createdAt: true,
           },
         },
+        contracts: {
+          orderBy: { contractDate: 'desc' },
+          select: {
+            id: true,
+            number: true,
+            status: true,
+            contractDate: true,
+            totalPriceUzs: true,
+            customer: { select: { id: true, name: true, phone: true } },
+          },
+        },
       },
     });
     if (!apt) throw new NotFoundException('Apartment not found');
 
-    const { customers, leads, ...core } = apt;
+    const { customers, leads, contracts, ...core } = apt;
     return {
       ...this.serializeUnit(core as ApartmentUnitWithLayout),
       customers,
       leads,
+      contracts,
     };
   }
 

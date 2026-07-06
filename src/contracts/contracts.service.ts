@@ -501,6 +501,61 @@ export class ContractsService {
     return this.findOne(projectId, contractId, developerId);
   }
 
+  /** Edit a payment (fix sales-team mistakes: amount, date, comment). */
+  async updatePayment(
+    projectId: number,
+    contractId: number,
+    paymentId: number,
+    developerId: number,
+    dto: { amountUzs?: number; paidAt?: string; comment?: string | null },
+  ) {
+    await this.assertMember(projectId, developerId);
+    const payment = await this.prisma.customerPayment.findFirst({
+      where: { id: paymentId, contractId, contract: { projectId } },
+    });
+    if (!payment) throw new NotFoundException('Payment not found');
+
+    await this.prisma.customerPayment.update({
+      where: { id: paymentId },
+      data: {
+        ...(dto.amountUzs != null
+          ? { amountUzs: BigInt(Math.round(dto.amountUzs)) }
+          : {}),
+        ...(dto.paidAt ? { paidAt: new Date(dto.paidAt) } : {}),
+        ...(dto.comment !== undefined ? { comment: dto.comment } : {}),
+      },
+    });
+
+    return this.findOne(projectId, contractId, developerId);
+  }
+
+  /** Manually edit a schedule row (e.g. 11 months of X and a big final payment). */
+  async updateScheduleItem(
+    projectId: number,
+    contractId: number,
+    itemId: number,
+    developerId: number,
+    dto: { amountUzs?: number; dueDate?: string },
+  ) {
+    await this.assertMember(projectId, developerId);
+    const item = await this.prisma.paymentScheduleItem.findFirst({
+      where: { id: itemId, contractId, contract: { projectId } },
+    });
+    if (!item) throw new NotFoundException('Schedule item not found');
+
+    await this.prisma.paymentScheduleItem.update({
+      where: { id: itemId },
+      data: {
+        ...(dto.amountUzs != null
+          ? { amountUzs: BigInt(Math.round(dto.amountUzs)) }
+          : {}),
+        ...(dto.dueDate ? { dueDate: new Date(dto.dueDate) } : {}),
+      },
+    });
+
+    return this.findOne(projectId, contractId, developerId);
+  }
+
   async removePayment(
     projectId: number,
     contractId: number,
