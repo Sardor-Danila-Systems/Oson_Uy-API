@@ -208,11 +208,18 @@ export class ContractsService {
       this.prisma.contract.count({ where }),
     ]);
 
-    // Compute paid totals per contract
+    // Compute paid totals + просроченную задолженность per contract
+    const now = new Date();
     const enriched = items.map((c) => {
       const paidUzs = c.payments.reduce((s, p) => s + p.amountUzs, 0n);
       const remainingUzs = c.totalPriceUzs - paidUzs;
-      return { ...c, paidUzs, remainingUzs };
+      const overdueUzs =
+        c.status === 'CANCELED' || c.status === 'COMPLETED'
+          ? 0n
+          : c.paymentSchedule
+              .filter((s) => !s.isPaid && s.dueDate < now)
+              .reduce((s, i) => s + i.amountUzs, 0n);
+      return { ...c, paidUzs, remainingUzs, overdueUzs };
     });
 
     return { items: enriched, total, page, limit };

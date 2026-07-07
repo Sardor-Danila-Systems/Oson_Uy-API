@@ -51,9 +51,33 @@ export class DevelopersService {
       telegramChatId,
       ...rest
     } = developer;
+
+    // Роль аккаунта в системе (для навигации дашборда):
+    // владелец собственных проектов или OWNER/ADMIN где-то → OWNER,
+    // иначе высшая роль среди участий (MANAGER / SALES).
+    const memberships = await this.prisma.projectMember.findMany({
+      where: { developerId: id },
+      select: { role: true },
+    });
+    const roles = new Set(memberships.map((m) => m.role));
+    let accountRole: 'OWNER' | 'MANAGER' | 'SALES' = 'OWNER';
+    if (
+      developer.projects.length > 0 ||
+      roles.has('OWNER') ||
+      roles.has('ADMIN')
+    ) {
+      accountRole = 'OWNER';
+    } else if (roles.has('MANAGER')) {
+      accountRole = 'MANAGER';
+    } else if (roles.has('SALES')) {
+      accountRole = 'SALES';
+    }
+
     return {
       ...rest,
       telegramLinked: Boolean(telegramChatId),
+      accountRole,
+      isEmployee: accountRole !== 'OWNER',
     };
   }
 
