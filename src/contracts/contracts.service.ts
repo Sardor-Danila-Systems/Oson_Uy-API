@@ -55,6 +55,7 @@ const CONTRACT_INCLUDE = {
       amountUzs: true,
       paidAt: true,
       type: true,
+      method: true,
       comment: true,
       receiptUrl: true,
       createdAt: true,
@@ -84,6 +85,36 @@ export class ContractsService {
       where: { projectId_developerId: { projectId, developerId } },
     });
     if (!member) throw new ForbiddenException('Access denied');
+  }
+
+  /** Журнал изменений — «кто, что и когда поменял» (виден в разделе Финансы). */
+  private async audit(
+    projectId: number,
+    entity: string,
+    entityId: number,
+    action: string,
+    summary: string,
+    developerId?: number,
+    details?: unknown,
+  ) {
+    try {
+      await this.prisma.auditLog.create({
+        data: {
+          projectId,
+          entity,
+          entityId,
+          action,
+          summary,
+          developerId: developerId ?? null,
+          details:
+            details === undefined
+              ? undefined
+              : (details as Prisma.InputJsonValue),
+        },
+      });
+    } catch {
+      /* журнал не должен ломать основную операцию */
+    }
   }
 
   private async generateContractNumber(projectId: number): Promise<string> {
@@ -318,6 +349,15 @@ export class ContractsService {
       return [created];
     });
 
+    await this.audit(
+      projectId,
+      'CONTRACT',
+      contract.id,
+      'CREATED',
+      `Создан договор №${contract.number} на ${totalPriceUzs.toLocaleString('ru-RU')} сум`,
+      developerId,
+    );
+
     return this.findOne(projectId, contract.id, developerId);
   }
 
@@ -415,6 +455,31 @@ export class ContractsService {
       }
     });
 
+    // Пишем в журнал, что именно изменили
+    const changes: string[] = [];
+    if (dto.totalPriceUzs !== undefined && BigInt(Math.round(dto.totalPriceUzs)) !== existing.totalPriceUzs)
+      changes.push(`сумма: ${existing.totalPriceUzs.toLocaleString('ru-RU')} → ${Math.round(dto.totalPriceUzs).toLocaleString('ru-RU')}`);
+    if (dto.firstPaymentUzs !== undefined && BigInt(Math.round(dto.firstPaymentUzs)) !== existing.firstPaymentUzs)
+      changes.push(`взнос: ${existing.firstPaymentUzs.toLocaleString('ru-RU')} → ${Math.round(dto.firstPaymentUzs).toLocaleString('ru-RU')}`);
+    if (dto.termMonths !== undefined && dto.termMonths !== existing.termMonths)
+      changes.push(`срок: ${existing.termMonths} → ${dto.termMonths} мес.`);
+    if (dto.paymentMethod !== undefined && dto.paymentMethod !== existing.paymentMethod)
+      changes.push(`способ оплаты: ${existing.paymentMethod} → ${dto.paymentMethod}`);
+    if (dto.status !== undefined && dto.status !== existing.status)
+      changes.push(`статус: ${existing.status} → ${dto.status}`);
+    if (dto.paymentDay !== undefined && dto.paymentDay !== existing.paymentDay)
+      changes.push(`день платежа: ${existing.paymentDay ?? '—'} → ${dto.paymentDay}`);
+    if (changes.length) {
+      await this.audit(
+        projectId,
+        'CONTRACT',
+        contractId,
+        'UPDATED',
+        `Договор №${existing.number}: ${changes.join('; ')}`,
+        developerId,
+      );
+    }
+
     return this.findOne(projectId, contractId, developerId);
   }
 
@@ -463,6 +528,7 @@ export class ContractsService {
           amountUzs,
           paidAt,
           type: dto.type ?? 'OTHER',
+          method: dto.method ?? 'CASH',
           comment: dto.comment,
           receiptUrl: dto.receiptUrl,
         },
@@ -498,6 +564,15 @@ export class ContractsService {
       }
     });
 
+    await this.audit(
+      projectId,
+      'PAYMENT',
+      contractId,
+      'CREATED',
+      `Платёж ${amountUzs.toLocaleString('ru-RU')} сум (${dto.method ?? 'CASH'}) по договору №${contract.number}`,
+      developerId,
+    );
+
     return this.findOne(projectId, contractId, developerId);
   }
 
@@ -526,6 +601,27 @@ export class ContractsService {
       },
     });
 
+    if (dto.amountUzs != null && BigInt(Math.round(dto.amountUzs)) !== payment.amountUzs) {
+      await this.audit(
+        projectId,
+        'PAYMENT',
+        paymentId,
+        'UPDATED',
+        `Платёж изменён: ${payment.amountUzs.toLocaleString('ru-RU')} → ${Math.round(dto.amountUzs).toLocaleString('ru-RU')} сум`,
+        developerId,
+        { before: payment.amountUzs.toString(), after: Math.round(dto.amountUzs) },
+      );
+    } else {
+      await this.audit(
+        projectId,
+        'PAYMENT',
+        paymentId,
+        'UPDATED',
+        `Платёж от ${payment.paidAt.toLocaleDateString('ru-RU')} отредактирован (дата/комментарий)`,
+        developerId,
+      );
+    }
+
     return this.findOne(projectId, contractId, developerId);
   }
 
@@ -553,6 +649,18 @@ export class ContractsService {
       },
     });
 
+    await this.audit(
+      projectId,
+      'SCHEDULE',
+      itemId,
+      'UPDATED',
+      `График: платёж от ${item.dueDate.toLocaleDateString('ru-RU')} изменён` +
+        (dto.amountUzs != null
+          ? ` (${item.amountUzs.toLocaleString('ru-RU')} → ${Math.round(dto.amountUzs).toLocaleString('ru-RU')} сум)`
+          : ''),
+      developerId,
+    );
+
     return this.findOne(projectId, contractId, developerId);
   }
 
@@ -569,6 +677,10 @@ export class ContractsService {
     });
     if (!contract) throw new NotFoundException('Contract not found');
 
+    const pay = await this.prisma.customerPayment.findFirst({
+      where: { id: paymentId, contractId },
+    });
+
     await this.prisma.$transaction(async (tx) => {
       // Unlink schedule item
       await tx.paymentScheduleItem.updateMany({
@@ -577,6 +689,17 @@ export class ContractsService {
       });
       await tx.customerPayment.delete({ where: { id: paymentId } });
     });
+
+    if (pay) {
+      await this.audit(
+        projectId,
+        'PAYMENT',
+        paymentId,
+        'DELETED',
+        `Удалён платёж ${pay.amountUzs.toLocaleString('ru-RU')} сум от ${pay.paidAt.toLocaleDateString('ru-RU')} (договор №${contract.number})`,
+        developerId,
+      );
+    }
 
     return this.findOne(projectId, contractId, developerId);
   }

@@ -91,6 +91,14 @@ enum CustomerPaymentType {
     OTHER
 }
 
+/// Способ оплаты — «касса», в которую попадают деньги
+enum PayMethod {
+    CASH // Наличные
+    CARD // Карта (Uzcard/Humo)
+    P2P // Перевод карта→карта
+    BANK // Банковский счёт
+}
+
 enum ConstructionStageKey {
     FOUNDATION
     FRAME
@@ -126,6 +134,7 @@ model Developer {
     // contracts where this developer is the responsible manager
     managedContracts Contract[] @relation("ContractManager")
     brokerContracts  Contract[] @relation("ContractBroker")
+    auditLogs        AuditLog[]
 
     @@map("developers")
 }
@@ -210,6 +219,9 @@ model Project {
     contractTemplates  ContractTemplate[]
     buildings          Building[]
     scene3d            Scene3D?
+    expenses           Expense[]
+    cashTransfers      CashTransfer[]
+    auditLogs          AuditLog[]
 
     @@index([developerId])
     @@map("projects")
@@ -505,6 +517,7 @@ model CustomerPayment {
     paidAt      DateTime            @map("paid_at")
     comment     String?
     type        CustomerPaymentType @default(OTHER) @map("type")
+    method      PayMethod           @default(CASH) @map("method")
     receiptUrl  String?             @map("receipt_url")
     createdAt   DateTime            @default(now()) @map("created_at")
     updatedAt   DateTime            @updatedAt @map("updated_at")
@@ -617,6 +630,60 @@ model ContractTemplate {
 
     @@index([projectId])
     @@map("contract_templates")
+}
+
+// ─── Finance (кассы, расходы, аудит) ─────────────────────────────────────────
+
+model Expense {
+    id        Int       @id @default(autoincrement())
+    projectId Int       @map("project_id")
+    title     String
+    category  String    @default("Прочее")
+    amountUzs BigInt    @map("amount_uzs")
+    method    PayMethod @default(CASH)
+    spentAt   DateTime  @default(now()) @map("spent_at")
+    comment   String?
+    createdBy Int?      @map("created_by")
+    createdAt DateTime  @default(now()) @map("created_at")
+
+    project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+    @@index([projectId, spentAt])
+    @@map("expenses")
+}
+
+model CashTransfer {
+    id         Int       @id @default(autoincrement())
+    projectId  Int       @map("project_id")
+    fromMethod PayMethod @map("from_method")
+    toMethod   PayMethod @map("to_method")
+    amountUzs  BigInt    @map("amount_uzs")
+    comment    String?
+    createdBy  Int?      @map("created_by")
+    createdAt  DateTime  @default(now()) @map("created_at")
+
+    project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+    @@index([projectId])
+    @@map("cash_transfers")
+}
+
+model AuditLog {
+    id          Int      @id @default(autoincrement())
+    projectId   Int      @map("project_id")
+    entity      String // CONTRACT | PAYMENT | SCHEDULE | EXPENSE
+    entityId    Int      @map("entity_id")
+    action      String // CREATED | UPDATED | DELETED
+    summary     String // человекочитаемое описание
+    details     Json? // { before, after }
+    developerId Int?     @map("developer_id")
+    createdAt   DateTime @default(now()) @map("created_at")
+
+    project   Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+    developer Developer? @relation(fields: [developerId], references: [id], onDelete: SetNull)
+
+    @@index([projectId, createdAt])
+    @@map("audit_logs")
 }
 
 // ─── Leads ────────────────────────────────────────────────────────────────────
