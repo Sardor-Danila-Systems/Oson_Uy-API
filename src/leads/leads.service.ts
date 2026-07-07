@@ -168,7 +168,10 @@ export class LeadsService {
     }
 
     if (developerId) {
-      where.project = { developerId };
+      // проекты, где пользователь владелец ИЛИ участник (сотрудник)
+      where.project = {
+        OR: [{ developerId }, { members: { some: { developerId } } }],
+      };
     }
 
     const search = filters?.search?.trim();
