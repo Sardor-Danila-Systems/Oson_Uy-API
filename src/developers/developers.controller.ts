@@ -13,7 +13,10 @@ import {
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { DevelopersService } from './developers.service';
 import { CreateDeveloperDto } from './dto/create-developer.dto';
-import { UpdateDeveloperDto } from './dto/update-developer.dto';
+import {
+  ChangePasswordDto,
+  UpdateDeveloperDto,
+} from './dto/update-developer.dto';
 import { RegisterPushTokenDto } from './dto/register-push-token.dto';
 import { AdminApiKeyGuard } from '../common/guards/admin-api-key.guard';
 import { DeveloperAuthGuard } from '../common/guards/developer-auth.guard';
@@ -63,6 +66,20 @@ export class DevelopersController {
   ) {
     const id = request.developerId ?? 0;
     return this.developersService.registerPushToken(id, dto);
+  }
+
+  @Post('me/change-password')
+  @UseGuards(DeveloperAuthGuard)
+  @ApiOperation({ summary: 'Change own password' })
+  changePassword(
+    @Body() dto: ChangePasswordDto,
+    @Req() request: Request & { developerId?: number },
+  ) {
+    return this.developersService.changePassword(
+      request.developerId ?? 0,
+      dto.currentPassword,
+      dto.newPassword,
+    );
   }
 
   @Patch(':id')

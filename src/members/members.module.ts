@@ -1,24 +1,21 @@
 import { Module } from '@nestjs/common';
-import { FinanceController } from './finance.controller';
-import { FinanceService } from './finance.service';
+import { MembersController } from './members.controller';
+import { MembersService } from './members.service';
 import { PrismaService } from '../prisma.service';
 import { AuthModule } from '../auth/auth.module';
 import { DeveloperAuthGuard } from '../common/guards/developer-auth.guard';
 import { ProjectMemberGuard } from '../common/guards/project-member.guard';
-import { ProjectUltimatePlanGuard } from '../common/guards/project-ultimate-plan.guard';
 import { PermissionGuard } from '../common/guards/permission.guard';
 
 @Module({
   imports: [AuthModule],
-  controllers: [FinanceController],
+  controllers: [MembersController],
   providers: [
-    FinanceService,
+    MembersService,
     PrismaService,
     DeveloperAuthGuard,
     ProjectMemberGuard,
-    ProjectUltimatePlanGuard,
     PermissionGuard,
   ],
-  exports: [FinanceService],
 })
-export class FinanceModule {}
+export class MembersModule {}

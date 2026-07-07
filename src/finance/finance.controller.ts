@@ -14,6 +14,10 @@ import { Request } from 'express';
 import { DeveloperAuthGuard } from '../common/guards/developer-auth.guard';
 import { ProjectMemberGuard } from '../common/guards/project-member.guard';
 import { ProjectUltimatePlanGuard } from '../common/guards/project-ultimate-plan.guard';
+import {
+  PermissionGuard,
+  RequirePermission,
+} from '../common/guards/permission.guard';
 import { FinanceService } from './finance.service';
 
 type DevRequest = Request & { developerId?: number };
@@ -21,7 +25,13 @@ type DevRequest = Request & { developerId?: number };
 @ApiTags('finance')
 @ApiBearerAuth()
 @Controller('projects/:projectId/finance')
-@UseGuards(DeveloperAuthGuard, ProjectMemberGuard, ProjectUltimatePlanGuard)
+@UseGuards(
+  DeveloperAuthGuard,
+  ProjectMemberGuard,
+  ProjectUltimatePlanGuard,
+  PermissionGuard,
+)
+@RequirePermission('finance')
 export class FinanceController {
   constructor(private readonly service: FinanceService) {}
 

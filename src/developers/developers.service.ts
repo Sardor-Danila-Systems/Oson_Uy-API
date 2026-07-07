@@ -1,6 +1,11 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { randomBytes } from 'crypto';
+import { randomBytes, scryptSync, timingSafeEqual } from 'crypto';
 import { PrismaService } from '../prisma.service';
 import { ExpoPushService } from '../common/services/expo-push.service';
 import { CreateDeveloperDto } from './dto/create-developer.dto';
@@ -96,9 +101,20 @@ export class DevelopersService {
   }
 
   async update(id: number, updateDeveloperDto: UpdateDeveloperDto) {
+    const data: UpdateDeveloperDto = { ...updateDeveloperDto };
+    if (typeof data.email === 'string') {
+      data.email = data.email.trim().toLowerCase();
+      const clash = await this.prisma.developer.findUnique({
+        where: { email: data.email },
+      });
+      if (clash && clash.id !== id) {
+        throw new BadRequestException('Этот email уже используется');
+      }
+    }
+
     const updated = await this.prisma.developer.update({
       where: { id },
-      data: updateDeveloperDto,
+      data,
       include: {
         projects: true,
       },
@@ -114,5 +130,45 @@ export class DevelopersService {
       ...rest,
       telegramLinked: Boolean(telegramChatId),
     };
+  }
+
+  private hashPassword(password: string) {
+    const salt = randomBytes(16).toString('hex');
+    const hash = scryptSync(password, salt, 64).toString('hex');
+    return `${salt}:${hash}`;
+  }
+
+  private verifyPassword(password: string, stored: string) {
+    const [salt, hash] = stored.split(':');
+    if (!salt || !hash) return false;
+    const hashedBuffer = Buffer.from(hash, 'hex');
+    const supplied = scryptSync(password, salt, 64);
+    return (
+      hashedBuffer.length === supplied.length &&
+      timingSafeEqual(hashedBuffer, supplied)
+    );
+  }
+
+  /** Смена пароля: проверяем текущий, ставим новый. */
+  async changePassword(
+    developerId: number,
+    currentPassword: string,
+    newPassword: string,
+  ) {
+    if (!newPassword || newPassword.length < 6) {
+      throw new BadRequestException('Новый пароль должен быть не короче 6 символов');
+    }
+    const dev = await this.prisma.developer.findUnique({
+      where: { id: developerId },
+    });
+    if (!dev) throw new NotFoundException('Аккаунт не найден');
+    if (!dev.passwordHash || !this.verifyPassword(currentPassword, dev.passwordHash)) {
+      throw new UnauthorizedException('Текущий пароль указан неверно');
+    }
+    await this.prisma.developer.update({
+      where: { id: developerId },
+      data: { passwordHash: this.hashPassword(newPassword) },
+    });
+    return { ok: true };
   }
 }

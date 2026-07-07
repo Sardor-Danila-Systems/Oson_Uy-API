@@ -21,6 +21,7 @@ import { ContractsModule } from './contracts/contracts.module';
 import { DocumentGenerationModule } from './document-generation/document-generation.module';
 import { Scenes3DModule } from './scenes-3d/scenes-3d.module';
 import { FinanceModule } from './finance/finance.module';
+import { MembersModule } from './members/members.module';
 import { DeveloperAuthGuard } from './common/guards/developer-auth.guard';
 import { ProjectMemberGuard } from './common/guards/project-member.guard';
 
@@ -52,6 +53,7 @@ import { ProjectMemberGuard } from './common/guards/project-member.guard';
     DocumentGenerationModule,
     Scenes3DModule,
     FinanceModule,
+    MembersModule,
   ],
   providers: [
     PrismaService,

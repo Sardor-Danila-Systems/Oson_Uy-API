@@ -10,8 +10,10 @@ datasource db {
 // ─── Enums ────────────────────────────────────────────────────────────────────
 
 enum ProjectMemberRole {
-    OWNER
-    MANAGER
+    OWNER // Владелец аккаунта — полный доступ, нельзя удалить
+    ADMIN // Администратор — полный доступ (назначается владельцем)
+    MANAGER // Менеджер — продажи, договоры, отчёты (без финансов/команды)
+    SALES // Отдел продаж — шахматка, клиенты, приём оплат
 }
 
 enum SubscriptionPlan {
@@ -232,6 +234,9 @@ model ProjectMember {
     projectId   Int
     developerId Int
     role        ProjectMemberRole @default(MANAGER)
+    /// Индивидуальные переопределения прав (null = права по роли).
+    /// Пример: { "finance": true, "team": false }
+    permissions Json?
     createdAt   DateTime          @default(now())
 
     project   Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
