@@ -7,7 +7,7 @@ import {
 import { PayMethod, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma.service';
 
-const METHODS: PayMethod[] = ['CASH', 'CARD', 'P2P', 'BANK'];
+const METHODS: PayMethod[] = ['CASH', 'P2P', 'BANK'];
 
 @Injectable()
 export class FinanceService {

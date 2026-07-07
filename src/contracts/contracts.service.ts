@@ -704,12 +704,91 @@ export class ContractsService {
     return this.findOne(projectId, contractId, developerId);
   }
 
+  /**
+   * Расторжение договора / отмена рассрочки с возвратом средств.
+   * Возврат записывается отрицательным платежом (уменьшает кассу и прибыль),
+   * квартира освобождается, договор помечается CANCELED.
+   */
+  async cancelWithRefund(
+    projectId: number,
+    contractId: number,
+    developerId: number,
+    dto: {
+      refundUzs?: number;
+      method?: 'CASH' | 'P2P' | 'BANK';
+      reason?: string;
+    },
+  ) {
+    await this.assertMember(projectId, developerId);
+    const contract = await this.prisma.contract.findFirst({
+      where: { id: contractId, projectId },
+      include: { payments: { select: { amountUzs: true } } },
+    });
+    if (!contract) throw new NotFoundException('Contract not found');
+    if (contract.status === 'CANCELED') {
+      throw new BadRequestException('Договор уже расторгнут');
+    }
+
+    const paid = contract.payments.reduce((s, p) => s + p.amountUzs, 0n);
+    const refund = BigInt(Math.max(0, Math.round(dto.refundUzs ?? 0)));
+    if (refund > paid) {
+      throw new BadRequestException(
+        `Возврат не может превышать оплаченную сумму (${paid.toLocaleString('ru-RU')} сум)`,
+      );
+    }
+    const method = (['CASH', 'P2P', 'BANK'] as const).includes(
+      dto.method as 'CASH' | 'P2P' | 'BANK',
+    )
+      ? (dto.method as 'CASH' | 'P2P' | 'BANK')
+      : 'CASH';
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.contract.update({
+        where: { id: contractId },
+        data: { status: 'CANCELED' },
+      });
+      await tx.apartmentUnit.update({
+        where: { id: contract.apartmentId },
+        data: { status: ApartmentStatus.AVAILABLE },
+      });
+      if (refund > 0n) {
+        // отрицательный платёж = возврат из кассы
+        await tx.customerPayment.create({
+          data: {
+            customerId: contract.customerId,
+            contractId,
+            amountUzs: -refund,
+            paidAt: new Date(),
+            type: 'OTHER',
+            method,
+            comment: `Возврат при расторжении${dto.reason ? ': ' + dto.reason.trim() : ''}`,
+          },
+        });
+      }
+    });
+
+    await this.audit(
+      projectId,
+      'CONTRACT',
+      contractId,
+      'UPDATED',
+      `Договор №${contract.number} расторгнут` +
+        (refund > 0n
+          ? `, возврат ${refund.toLocaleString('ru-RU')} сум (${method})`
+          : ' без возврата') +
+        (dto.reason ? `. Причина: ${dto.reason.trim()}` : ''),
+      developerId,
+    );
+
+    return this.findOne(projectId, contractId, developerId);
+  }
+
   // ── Stats for reports ─────────────────────────────────────────────────────
 
   async getProjectStats(projectId: number, developerId: number) {
     await this.assertMember(projectId, developerId);
 
-    const [contracts, apartments] = await Promise.all([
+    const [contracts, apartments, payAgg] = await Promise.all([
       this.prisma.contract.findMany({
         where: { projectId },
         select: {
@@ -726,6 +805,11 @@ export class ContractsService {
         by: ['status'],
         where: { projectId },
         _count: true,
+      }),
+      this.prisma.customerPayment.groupBy({
+        by: ['method'],
+        where: { customer: { projectId } },
+        _sum: { amountUzs: true },
       }),
     ]);
 
@@ -767,6 +851,43 @@ export class ContractsService {
       managerMap.set(c.managerId, entry);
     }
 
+    // Продажи по месяцам (последние 6)
+    const now = new Date();
+    const months: string[] = [];
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      months.push(
+        `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
+      );
+    }
+    const msMap = new Map<string, { count: number; sum: bigint }>(
+      months.map((m) => [m, { count: 0, sum: 0n }]),
+    );
+    for (const c of contracts) {
+      if (c.status === 'CANCELED' || !c.contractDate) continue;
+      const k = `${c.contractDate.getFullYear()}-${String(c.contractDate.getMonth() + 1).padStart(2, '0')}`;
+      const e = msMap.get(k);
+      if (e) {
+        e.count++;
+        e.sum += c.totalPriceUzs;
+      }
+    }
+    const monthlySales = months.map((m) => ({
+      month: m,
+      count: msMap.get(m)!.count,
+      sumUzs: msMap.get(m)!.sum.toString(),
+    }));
+
+    // Сборы по кассам (способ оплаты), net (возвраты уменьшают)
+    const paymentMethods: Record<string, string> = {
+      CASH: '0',
+      P2P: '0',
+      BANK: '0',
+    };
+    for (const p of payAgg) {
+      paymentMethods[p.method] = (p._sum.amountUzs ?? 0n).toString();
+    }
+
     return {
       totalSalesUzs: totalSalesUzs.toString(),
       totalCollectedUzs: totalCollectedUzs.toString(),
@@ -779,6 +900,8 @@ export class ContractsService {
         count: v.count,
         totalUzs: v.totalUzs.toString(),
       })),
+      monthlySales,
+      paymentMethods,
     };
   }
 

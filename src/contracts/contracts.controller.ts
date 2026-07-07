@@ -152,4 +152,15 @@ export class ContractsController {
   ) {
     return this.service.removePayment(projectId, id, paymentId, req.developerId!);
   }
+
+  @Post(':id/cancel')
+  cancelWithRefund(
+    @Param('projectId', ParseIntPipe) projectId: number,
+    @Param('id', ParseIntPipe) id: number,
+    @Req() req: DevRequest,
+    @Body()
+    dto: { refundUzs?: number; method?: 'CASH' | 'P2P' | 'BANK'; reason?: string },
+  ) {
+    return this.service.cancelWithRefund(projectId, id, req.developerId!, dto);
+  }
 }
