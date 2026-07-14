@@ -34,6 +34,89 @@ export class DevelopersService {
     });
   }
 
+  /** Public developer directory (only those with at least one project). */
+  async getPublicList() {
+    const devs = await this.prisma.developer.findMany({
+      where: { projects: { some: {} } },
+      select: {
+        id: true,
+        name: true,
+        logoUrl: true,
+        _count: { select: { projects: true } },
+      },
+      orderBy: { projects: { _count: 'desc' } },
+    });
+    return devs.map((d) => ({
+      id: d.id,
+      name: d.name,
+      logoUrl: d.logoUrl,
+      projectsCount: d._count.projects,
+    }));
+  }
+
+  /** Public SEO profile of a single developer + their projects. */
+  async getPublicProfile(id: number) {
+    const dev = await this.prisma.developer.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        name: true,
+        logoUrl: true,
+        description: true,
+        phone: true,
+        website: true,
+        legalAddress: true,
+        officeAddress: true,
+        createdAt: true,
+        projects: {
+          select: {
+            id: true,
+            name: true,
+            imageUrl: true,
+            location: true,
+            district: true,
+            deliveryDate: true,
+            totalUnits: true,
+            media: { select: { imageUrl: true }, take: 1 },
+            subscription: { select: { plan: true, status: true } },
+          },
+          orderBy: { id: 'desc' },
+        },
+      },
+    });
+    if (!dev) return null;
+
+    const verified = dev.projects.some(
+      (p) =>
+        p.subscription &&
+        (p.subscription.status === 'ACTIVE' ||
+          p.subscription.status === 'TRIAL'),
+    );
+
+    return {
+      id: dev.id,
+      name: dev.name,
+      logoUrl: dev.logoUrl,
+      description: dev.description,
+      phone: dev.phone,
+      website: dev.website,
+      legalAddress: dev.legalAddress,
+      officeAddress: dev.officeAddress,
+      createdAt: dev.createdAt,
+      verified,
+      projectsCount: dev.projects.length,
+      projects: dev.projects.map((p) => ({
+        id: p.id,
+        name: p.name,
+        imageUrl: p.imageUrl || p.media?.[0]?.imageUrl || null,
+        location: p.location,
+        district: p.district,
+        deliveryDate: p.deliveryDate,
+        totalUnits: p.totalUnits,
+      })),
+    };
+  }
+
   async findById(id: number) {
     const developer = await this.prisma.developer.findUnique({
       where: { id },

@@ -36,6 +36,18 @@ export class DevelopersController {
     return this.developersService.create(createDeveloperDto);
   }
 
+  @Get('public')
+  @ApiOperation({ summary: 'Public developer directory (SEO)' })
+  getPublicList() {
+    return this.developersService.getPublicList();
+  }
+
+  @Get('public/:id')
+  @ApiOperation({ summary: 'Public developer profile + projects (SEO)' })
+  getPublicProfile(@Param('id', ParseIntPipe) id: number) {
+    return this.developersService.getPublicProfile(id);
+  }
+
   @Get()
   @UseGuards(DeveloperAuthGuard)
   @ApiOperation({ summary: 'Get all developers' })
