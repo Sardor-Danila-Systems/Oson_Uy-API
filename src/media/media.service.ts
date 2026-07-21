@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Injectable,
   InternalServerErrorException,
+  Logger,
 } from '@nestjs/common';
 import { createClient } from '@supabase/supabase-js';
 import { randomUUID } from 'crypto';
@@ -41,6 +42,7 @@ export class MediaService {
     process.env.SUPABASE_SERVICE_ROLE_KEY || '',
   );
   private readonly bucket = process.env.SUPABASE_BUCKET || 'oson-uy';
+  private readonly logger = new Logger(MediaService.name);
 
   private assertConfigured() {
     if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
@@ -74,42 +76,47 @@ export class MediaService {
       ? (folder as AllowedFolder)
       : 'projects';
 
-    // 1–2. Validate + auto-rotate. `failOn: 'error'` rejects genuinely
-    // corrupted data while tolerating benign encoder warnings.
-    let sourceWidth: number;
+    // 1–6. Decode → optimise. Any Sharp failure here (corrupted data, or a
+    // format this platform's libvips can't decode — e.g. HEIC without HEIF
+    // support) surfaces its real reason instead of a generic message.
+    let mainBuffer: Buffer;
+    let thumbBuffer: Buffer;
+    let finalMeta: sharp.Metadata;
     try {
+      // Validate + auto-rotate. `failOn: 'error'` rejects genuinely corrupted
+      // data while tolerating benign encoder warnings.
       const meta = await sharp(file.buffer, { failOn: 'error' })
         .rotate()
         .metadata();
       if (!meta.width || !meta.height) {
-        throw new Error('missing dimensions');
+        throw new Error('image has no readable dimensions');
       }
-      sourceWidth = meta.width;
-    } catch {
-      throw new BadRequestException(
-        'The image is corrupted or in an unsupported format.',
+      const sourceWidth = meta.width;
+
+      // Full-size WebP. Metadata is stripped by default (we never call
+      // withMetadata/keepMetadata). Resize only when wider than the cap.
+      const mainPipeline = sharp(file.buffer, { failOn: 'error' }).rotate();
+      if (sourceWidth > MAX_WIDTH) {
+        mainPipeline.resize({ width: MAX_WIDTH, withoutEnlargement: true });
+      }
+      mainBuffer = await mainPipeline
+        .webp({ quality: 82, effort: 6, smartSubsample: true })
+        .toBuffer();
+
+      finalMeta = await sharp(mainBuffer).metadata();
+
+      thumbBuffer = await sharp(file.buffer, { failOn: 'error' })
+        .rotate()
+        .resize({ width: THUMB_WIDTH, withoutEnlargement: true })
+        .webp({ quality: 75, effort: 6 })
+        .toBuffer();
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      this.logger.error(
+        `Image processing failed [name=${file.originalname} mime=${file.mimetype} size=${file.size}B]: ${reason}`,
       );
+      throw new BadRequestException(`Image could not be processed: ${reason}`);
     }
-
-    // 4–5. Full-size WebP. Metadata is stripped by default (we never call
-    // withMetadata/keepMetadata). Resize only when wider than the cap.
-    const mainPipeline = sharp(file.buffer, { failOn: 'error' }).rotate();
-    if (sourceWidth > MAX_WIDTH) {
-      mainPipeline.resize({ width: MAX_WIDTH, withoutEnlargement: true });
-    }
-    const mainBuffer = await mainPipeline
-      .webp({ quality: 82, effort: 6, smartSubsample: true })
-      .toBuffer();
-
-    // Read back the real output dimensions.
-    const finalMeta = await sharp(mainBuffer).metadata();
-
-    // 6. Thumbnail.
-    const thumbBuffer = await sharp(file.buffer, { failOn: 'error' })
-      .rotate()
-      .resize({ width: THUMB_WIDTH, withoutEnlargement: true })
-      .webp({ quality: 75, effort: 6 })
-      .toBuffer();
 
     // 7. Upload both under a shared UUID base name.
     const base = randomUUID();
@@ -121,7 +128,7 @@ export class MediaService {
     return {
       imageUrl,
       thumbnailUrl,
-      width: finalMeta.width ?? sourceWidth,
+      width: finalMeta.width ?? 0,
       height: finalMeta.height ?? 0,
       mimeType: 'image/webp',
       optimizedSize: mainBuffer.length,
