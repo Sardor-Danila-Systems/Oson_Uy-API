@@ -1,6 +1,6 @@
 console.log('Backend is starting...');
 
-// Simple test to check if modules can be imported
+
 try {
     const fs = require('fs');
     const path = require('path');
