@@ -7,7 +7,7 @@ import {
   SubscriptionStatus,
 } from '@prisma/client';
 import { PrismaService } from '../prisma.service';
-import { CreateProjectDto } from './dto/create-project.dto';
+import { CreateProjectDto, MediaItemDto } from './dto/create-project.dto';
 import { FilterProjectDto } from './dto/filter-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
 import { UpdateBuildingProgressDto } from './dto/update-building-progress.dto';
@@ -133,18 +133,17 @@ export class ProjectsService {
   }
 
   async create(createProjectDto: CreateProjectDto) {
-    const { imageUrls, ...projectData } = createProjectDto;
-    this.ensureImageQuota(imageUrls, SubscriptionPlan.START);
+    const { imageUrls, mediaItems, ...projectData } = createProjectDto;
+    const mediaList = ProjectsService.normalizeMediaList(imageUrls, mediaItems);
+    this.ensureImageQuota(
+      mediaList?.map((m) => m.imageUrl),
+      SubscriptionPlan.START,
+    );
     const project = await this.prisma.project.create({
       data: {
         ...projectData,
-        media: imageUrls?.length
-          ? {
-              create: imageUrls.map((imageUrl, index) => ({
-                imageUrl,
-                sortOrder: index,
-              })),
-            }
+        media: mediaList?.length
+          ? { create: ProjectsService.buildMediaCreate(mediaList) }
           : undefined,
       },
       include: {
@@ -278,9 +277,10 @@ export class ProjectsService {
 
   async update(id: number, updateProjectDto: UpdateProjectDto) {
     const currentRaw = await this.loadProjectOrThrow(id);
-    const { imageUrls, ...projectData } = updateProjectDto;
+    const { imageUrls, mediaItems, ...projectData } = updateProjectDto;
+    const mediaList = ProjectsService.normalizeMediaList(imageUrls, mediaItems);
     this.ensureImageQuota(
-      imageUrls,
+      mediaList?.map((m) => m.imageUrl),
       currentRaw.subscription?.plan ?? SubscriptionPlan.START,
     );
 
@@ -288,13 +288,10 @@ export class ProjectsService {
       where: { id },
       data: {
         ...projectData,
-        media: imageUrls
+        media: mediaList
           ? {
               deleteMany: {},
-              create: imageUrls.map((imageUrl, index) => ({
-                imageUrl,
-                sortOrder: index,
-              })),
+              create: ProjectsService.buildMediaCreate(mediaList),
             }
           : undefined,
       },
@@ -660,6 +657,33 @@ export class ProjectsService {
     ]);
 
     return this.getProgress(projectId);
+  }
+
+  /**
+   * Prefer the rich `mediaItems` payload (WebP + metadata from the upload
+   * pipeline); fall back to the legacy `imageUrls` string array. Returns
+   * `undefined` when neither was sent (so media is left untouched), or an
+   * array (possibly empty) when the caller intends to replace the gallery.
+   */
+  private static normalizeMediaList(
+    imageUrls: string[] | undefined,
+    mediaItems: MediaItemDto[] | undefined,
+  ): MediaItemDto[] | undefined {
+    if (mediaItems) return mediaItems;
+    if (imageUrls) return imageUrls.map((imageUrl) => ({ imageUrl }));
+    return undefined;
+  }
+
+  private static buildMediaCreate(mediaList: MediaItemDto[]) {
+    return mediaList.map((m, index) => ({
+      imageUrl: m.imageUrl,
+      thumbnailUrl: m.thumbnailUrl ?? null,
+      width: m.width ?? null,
+      height: m.height ?? null,
+      mimeType: m.mimeType ?? null,
+      optimizedSize: m.optimizedSize ?? null,
+      sortOrder: index,
+    }));
   }
 
   private ensureImageQuota(

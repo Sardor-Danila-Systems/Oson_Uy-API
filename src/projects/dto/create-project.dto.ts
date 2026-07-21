@@ -7,9 +7,45 @@ import {
   IsNumber,
   IsUrl,
   IsBoolean,
+  ValidateNested,
 } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
+
+/** One optimised gallery image with its metadata (from the upload pipeline). */
+export class MediaItemDto {
+  @ApiProperty({ description: 'Optimised full-size WebP URL' })
+  @IsString()
+  imageUrl: string;
+
+  @ApiProperty({ description: '400px WebP thumbnail URL', required: false })
+  @IsOptional()
+  @IsString()
+  thumbnailUrl?: string;
+
+  @ApiProperty({ description: 'Image width in px', required: false })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  width?: number;
+
+  @ApiProperty({ description: 'Image height in px', required: false })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  height?: number;
+
+  @ApiProperty({ description: 'MIME type, e.g. image/webp', required: false })
+  @IsOptional()
+  @IsString()
+  mimeType?: string;
+
+  @ApiProperty({ description: 'Optimised byte size', required: false })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  optimizedSize?: number;
+}
 
 export class CreateProjectDto {
   @ApiProperty({
@@ -214,6 +250,18 @@ export class CreateProjectDto {
   @IsArray()
   @IsString({ each: true })
   imageUrls?: string[];
+
+  @ApiProperty({
+    description:
+      'Optimised gallery images with metadata (preferred over imageUrls)',
+    type: [MediaItemDto],
+    required: false,
+  })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => MediaItemDto)
+  mediaItems?: MediaItemDto[];
 
   @ApiProperty({
     description: 'The ID of the developer owning this project',
