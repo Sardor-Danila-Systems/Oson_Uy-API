@@ -138,6 +138,19 @@ export class MediaService {
     return this.uploadRaw(file, folder);
   }
 
+  /**
+   * Store a file as-is (no optimisation). Used for formats the image pipeline
+   * cannot/should not transcode — PDF floor plans, animated GIFs — so existing
+   * uploaders (e.g. layout planning) keep working.
+   */
+  uploadOriginal(
+    file: Express.Multer.File,
+    folder = 'uploads',
+  ): Promise<string> {
+    this.assertConfigured();
+    return this.uploadRaw(file, folder);
+  }
+
   /** Store an already-prepared buffer and return its public URL. */
   private async uploadBuffer(
     path: string,

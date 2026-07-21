@@ -19,8 +19,8 @@ import { memoryStorage } from 'multer';
 import { MediaService } from './media.service';
 import { DeveloperAuthGuard } from '../common/guards/developer-auth.guard';
 
-/** MIME types we accept for optimisation. */
-const ALLOWED_MIME = [
+/** MIME types the Sharp pipeline optimises (→ WebP + thumbnail). */
+const OPTIMIZABLE_MIME = [
   'image/jpeg',
   'image/jpg',
   'image/png',
@@ -29,8 +29,16 @@ const ALLOWED_MIME = [
   'image/heif',
   'image/avif',
 ];
-/** Extensions we accept as a fallback when the browser sends a vague MIME. */
-const ALLOWED_EXT = ['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif', 'avif'];
+/** Extensions accepted as a fallback when the browser sends a vague MIME. */
+const OPTIMIZABLE_EXT = ['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif', 'avif'];
+
+/**
+ * Formats we accept but never transcode — stored as-is. PDFs (floor plans) and
+ * animated GIFs must keep their original form, so existing uploaders that rely
+ * on this endpoint (e.g. layout planning) keep working.
+ */
+const PASSTHROUGH_MIME = ['application/pdf', 'image/gif'];
+const PASSTHROUGH_EXT = ['pdf', 'gif'];
 
 const MAX_UPLOAD_BYTES = 60 * 1024 * 1024; // originals may be large (up to ~50 MB)
 
@@ -92,16 +100,26 @@ export class MediaController {
     }
 
     const ext = (file.originalname.split('.').pop() || '').toLowerCase();
-    const mimeOk = ALLOWED_MIME.includes(file.mimetype.toLowerCase());
-    const extOk = ALLOWED_EXT.includes(ext);
-    if (!mimeOk && !extOk) {
-      throw new BadRequestException(
-        'Unsupported format. Allowed: JPG, JPEG, PNG, WEBP, HEIC, AVIF.',
+    const mime = file.mimetype.toLowerCase();
+
+    // Optimisable images → Sharp pipeline (WebP + thumbnail + metadata).
+    if (OPTIMIZABLE_MIME.includes(mime) || OPTIMIZABLE_EXT.includes(ext)) {
+      const result = await this.mediaService.optimizeAndUploadImage(
+        file,
+        folder,
       );
+      // `url` is kept for backward compatibility with existing callers.
+      return { url: result.imageUrl, ...result };
     }
 
-    const result = await this.mediaService.optimizeAndUploadImage(file, folder);
-    // `url` is kept for backward compatibility with existing callers.
-    return { url: result.imageUrl, ...result };
+    // PDF / GIF → stored as-is so floor-plan and other document uploads work.
+    if (PASSTHROUGH_MIME.includes(mime) || PASSTHROUGH_EXT.includes(ext)) {
+      const url = await this.mediaService.uploadOriginal(file, folder);
+      return { url, imageUrl: url };
+    }
+
+    throw new BadRequestException(
+      'Unsupported format. Allowed: JPG, JPEG, PNG, WEBP, HEIC, AVIF, PDF.',
+    );
   }
 }
