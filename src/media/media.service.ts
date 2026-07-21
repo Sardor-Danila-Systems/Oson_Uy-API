@@ -6,7 +6,12 @@ import {
 } from '@nestjs/common';
 import { createClient } from '@supabase/supabase-js';
 import { randomUUID } from 'crypto';
-import sharp from 'sharp';
+// `import sharp = require(...)` (not a default import): sharp is a CommonJS
+// module whose export IS the callable. Under the Nest webpack builder a default
+// import compiles to `sharp_1.default`, which is undefined for the externalised
+// CJS require → "(0, sharp_1.default) is not a function". This form binds the
+// callable directly while keeping the `sharp.Metadata` type namespace.
+import sharp = require('sharp');
 
 /** Result of running a raw upload through the optimisation pipeline. */
 export interface OptimizedImage {
