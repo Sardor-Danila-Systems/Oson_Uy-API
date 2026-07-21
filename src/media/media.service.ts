@@ -13,6 +13,22 @@ import { randomUUID } from 'crypto';
 // callable directly while keeping the `sharp.Metadata` type namespace.
 import sharp = require('sharp');
 
+// Memory safety for constrained hosts (e.g. Render 512 MB): disable the libvips
+// operation cache (keeps decoded rasters resident) and pin libvips to a single
+// thread per operation. Off-heap native memory — not the V8 heap — is what OOMs
+// here, so these matter more than --max-old-space-size.
+sharp.cache(false);
+sharp.concurrency(1);
+
+/**
+ * Max Sharp jobs allowed to run at once, process-wide, to bound peak memory.
+ * Kept at 1 for the 512 MB tier — a single 48 MP decode + WebP encode is the
+ * memory ceiling; running two at once risks OOM. Raise if the host has more RAM.
+ */
+const MAX_CONCURRENT_JOBS = 1;
+/** Reject absurdly large rasters (decompression bombs) up front. */
+const MAX_INPUT_PIXELS = 100_000_000; // 100 MP
+
 /** Result of running a raw upload through the optimisation pipeline. */
 export interface OptimizedImage {
   /** Public URL of the optimised full-size WebP. */
@@ -49,6 +65,24 @@ export class MediaService {
   private readonly bucket = process.env.SUPABASE_BUCKET || 'oson-uy';
   private readonly logger = new Logger(MediaService.name);
 
+  // Simple in-process semaphore so concurrent uploads don't run unbounded Sharp
+  // jobs in parallel and blow the memory limit.
+  private running = 0;
+  private readonly waiters: Array<() => void> = [];
+
+  private async withSlot<T>(fn: () => Promise<T>): Promise<T> {
+    if (this.running >= MAX_CONCURRENT_JOBS) {
+      await new Promise<void>((resolve) => this.waiters.push(resolve));
+    }
+    this.running++;
+    try {
+      return await fn();
+    } finally {
+      this.running--;
+      this.waiters.shift()?.();
+    }
+  }
+
   private assertConfigured() {
     if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
       throw new InternalServerErrorException(
@@ -81,40 +115,49 @@ export class MediaService {
       ? (folder as AllowedFolder)
       : 'projects';
 
-    // 1–6. Decode → optimise. Any Sharp failure here (corrupted data, or a
-    // format this platform's libvips can't decode — e.g. HEIC without HEIF
-    // support) surfaces its real reason instead of a generic message.
+    // Decode → optimise inside a concurrency slot. Any Sharp failure here
+    // (corrupted data, or a format this platform's libvips can't decode)
+    // surfaces its real reason instead of a generic message.
     let mainBuffer: Buffer;
     let thumbBuffer: Buffer;
     let finalMeta: sharp.Metadata;
     try {
-      // Validate + auto-rotate. `failOn: 'error'` rejects genuinely corrupted
-      // data while tolerating benign encoder warnings.
-      const meta = await sharp(file.buffer, { failOn: 'error' })
-        .rotate()
-        .metadata();
-      if (!meta.width || !meta.height) {
-        throw new Error('image has no readable dimensions');
-      }
-      const sourceWidth = meta.width;
+      ({ mainBuffer, thumbBuffer, finalMeta } = await this.withSlot(
+        async () => {
+          // Decode the original ONCE. `sequentialRead` lowers peak memory for
+          // large JPEGs, and downscaling in this same pipeline lets libvips use
+          // JPEG shrink-on-load (it never materialises the full-res raster).
+          const main = await sharp(file.buffer, {
+            failOn: 'error',
+            sequentialRead: true,
+            limitInputPixels: MAX_INPUT_PIXELS,
+          })
+            .rotate()
+            .resize({ width: MAX_WIDTH, withoutEnlargement: true })
+            .webp({ quality: 82, effort: 4, smartSubsample: true })
+            .toBuffer({ resolveWithObject: true });
 
-      // Full-size WebP. Metadata is stripped by default (we never call
-      // withMetadata/keepMetadata). Resize only when wider than the cap.
-      const mainPipeline = sharp(file.buffer, { failOn: 'error' }).rotate();
-      if (sourceWidth > MAX_WIDTH) {
-        mainPipeline.resize({ width: MAX_WIDTH, withoutEnlargement: true });
-      }
-      mainBuffer = await mainPipeline
-        .webp({ quality: 82, effort: 6, smartSubsample: true })
-        .toBuffer();
+          if (!main.info.width || !main.info.height) {
+            throw new Error('image has no readable dimensions');
+          }
 
-      finalMeta = await sharp(mainBuffer).metadata();
+          // Thumbnail is derived from the already-small main buffer — no second
+          // decode of the (potentially huge) original.
+          const thumb = await sharp(main.data)
+            .resize({ width: THUMB_WIDTH, withoutEnlargement: true })
+            .webp({ quality: 75, effort: 4 })
+            .toBuffer();
 
-      thumbBuffer = await sharp(file.buffer, { failOn: 'error' })
-        .rotate()
-        .resize({ width: THUMB_WIDTH, withoutEnlargement: true })
-        .webp({ quality: 75, effort: 6 })
-        .toBuffer();
+          return {
+            mainBuffer: main.data,
+            thumbBuffer: thumb,
+            finalMeta: {
+              width: main.info.width,
+              height: main.info.height,
+            } as sharp.Metadata,
+          };
+        },
+      ));
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
       this.logger.error(
@@ -123,7 +166,7 @@ export class MediaService {
       throw new BadRequestException(`Image could not be processed: ${reason}`);
     }
 
-    // 7. Upload both under a shared UUID base name.
+    // Upload both under a shared UUID base name.
     const base = randomUUID();
     const [imageUrl, thumbnailUrl] = await Promise.all([
       this.uploadBuffer(`${targetFolder}/${base}.webp`, mainBuffer),

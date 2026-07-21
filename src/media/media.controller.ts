@@ -40,7 +40,7 @@ const OPTIMIZABLE_EXT = ['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif', 'avif'];
 const PASSTHROUGH_MIME = ['application/pdf', 'image/gif'];
 const PASSTHROUGH_EXT = ['pdf', 'gif'];
 
-const MAX_UPLOAD_BYTES = 60 * 1024 * 1024; // originals may be large (up to ~50 MB)
+const MAX_UPLOAD_BYTES = 50 * 1024 * 1024; // originals may be large (up to ~50 MB)
 
 @ApiTags('media')
 @Controller('upload')
