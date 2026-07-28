@@ -115,32 +115,45 @@ export class LeadsService {
       });
     }
 
-    if (developer?.telegramChatId) {
-      const dashboardBase =
-        process.env.DASHBOARD_PUBLIC_URL ??
-        process.env.FRONTEND_URL ??
-        'http://localhost:3000';
-      const leadsUrl = `${dashboardBase.replace(/\/$/, '')}/dashboard/leads`;
-      const when = new Date(lead.createdAt).toLocaleString('ru-RU', {
-        day: '2-digit',
-        month: 'short',
-        hour: '2-digit',
-        minute: '2-digit',
-      });
-      const areas =
-        lead.floor?.areaOptions?.map((o) => `${o.areaSqm}`).join(', ') || '—';
-      const floorHint =
-        lead.floorId != null && lead.floor
-          ? `\n🏢 <b>Этаж:</b> ${lead.floor.floor} · <b>${escapeTelegramHtml(String(Math.round(lead.floor.pricePerM2)))} сум/м²</b> · <b>м² варианты:</b> ${escapeTelegramHtml(areas)}`
+    const dashboardBase =
+      process.env.DASHBOARD_PUBLIC_URL ??
+      process.env.FRONTEND_URL ??
+      'http://localhost:3000';
+    const leadsUrl = `${dashboardBase.replace(/\/$/, '')}/dashboard/leads`;
+    // Always render the timestamp in Uzbekistan time, regardless of the
+    // server's timezone (Render runs in UTC, which showed the wrong hour).
+    const when = new Date(lead.createdAt).toLocaleString('ru-RU', {
+      timeZone: 'Asia/Tashkent',
+      day: '2-digit',
+      month: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+    const areas =
+      lead.floor?.areaOptions?.map((o) => `${o.areaSqm}`).join(', ') || '—';
+    const floorHint =
+      lead.floorId != null && lead.floor
+        ? `\n🏢 <b>Этаж:</b> ${lead.floor.floor} · <b>${escapeTelegramHtml(String(Math.round(lead.floor.pricePerM2)))} сум/м²</b> · <b>м² варианты:</b> ${escapeTelegramHtml(areas)}`
+        : '';
+
+    const buildLeadHtml = (opts?: { master?: boolean }): string => {
+      const header = opts?.master
+        ? '🛰 <b>Новая заявка</b> · <i>OsonUy · мастер-канал</i>'
+        : '🎯 <b>Новая заявка</b> · <i>OsonUy</i>';
+      // On the master channel show which developer the lead belongs to.
+      const developerLine =
+        opts?.master && developer?.name
+          ? '🏢 <b>Застройщик:</b> ' + escapeTelegramHtml(developer.name)
           : '';
-      const html = [
-        '🎯 <b>Новая заявка</b> · <i>OsonUy</i>',
+      return [
+        header,
         '',
         '👤 <b>Имя:</b> ' + escapeTelegramHtml(lead.name),
         '📞 <b>Телефон:</b> <code>' +
           escapeTelegramHtml(lead.phone) +
           '</code>',
         '🏗 <b>Объект:</b> ' + escapeTelegramHtml(projectName),
+        developerLine,
         '🆔 <b>№ заявки:</b> <code>' + String(lead.id) + '</code>',
         '🕐 <b>Когда:</b> ' + escapeTelegramHtml(when),
         floorHint,
@@ -150,7 +163,28 @@ export class LeadsService {
       ]
         .filter(Boolean)
         .join('\n');
-      await this.telegramBot.sendHtml(developer.telegramChatId, html);
+    };
+
+    // 1) Notify the project's own developer.
+    if (developer?.telegramChatId) {
+      await this.telegramBot.sendHtml(
+        developer.telegramChatId,
+        buildLeadHtml(),
+      );
+    }
+
+    // 2) Master channel — OsonUy staff that receives EVERY lead across all
+    // projects. Configure MASTER_TELEGRAM_CHAT_ID with one or more chat IDs
+    // (comma-separated) — e.g. a staff group chat or individual employees.
+    const masterChatIds = (process.env.MASTER_TELEGRAM_CHAT_ID ?? '')
+      .split(',')
+      .map((id) => id.trim())
+      .filter(Boolean);
+    if (masterChatIds.length) {
+      const masterHtml = buildLeadHtml({ master: true });
+      for (const chatId of masterChatIds) {
+        await this.telegramBot.sendHtml(chatId, masterHtml);
+      }
     }
 
     return lead;

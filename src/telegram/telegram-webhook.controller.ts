@@ -49,6 +49,16 @@ export class TelegramWebhookController {
       return { ok: true };
     }
 
+    // Helper for setting up the OsonUy master channel: reply with this chat's
+    // ID so it can be added to MASTER_TELEGRAM_CHAT_ID.
+    if (text.trim() === '/id') {
+      await this.telegramBot.sendPlainText(
+        String(chatId),
+        `Chat ID: ${chatId}`,
+      );
+      return { ok: true };
+    }
+
     if (text.startsWith('/start')) {
       const parts = text.trim().split(/\s+/);
       const payload = parts[1];
